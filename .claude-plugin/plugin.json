@@ -1,6 +1,6 @@
 {
   "name": "pokemon-buddy",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "One random animated Pokémon in the Game Boy Color style of Pokémon Crystal, above your prompt, new each session",
   "author": {
     "name": "Shavvimal",
@@ -16,5 +16,25 @@
     "terminal",
     "fun",
     "mod"
-  ]
+  ],
+  "userConfig": {
+    "crystal": {
+      "type": "boolean",
+      "title": "Pokémon Crystal sprites",
+      "description": "The original Pokémon Crystal sprites (#1 to #251), from PokeAPI/sprites.",
+      "default": true
+    },
+    "polishedCrystal": {
+      "type": "boolean",
+      "title": "Polished Crystal sprites",
+      "description": "Later relatives and regional forms in Crystal's style, from the Polished Crystal ROM hack.",
+      "default": true
+    },
+    "prism": {
+      "type": "boolean",
+      "title": "Pokémon Prism sprites",
+      "description": "Gen 3 and 4 Pokémon in Crystal's style, from a third-party archive of graphics extracted from Pokémon Prism. See NOTICE.md.",
+      "default": true
+    }
+  }
 }

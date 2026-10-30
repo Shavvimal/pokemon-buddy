@@ -1,24 +1,52 @@
 import { expect, mock, test } from 'claude-code/testing'
+import type { TestBody } from 'claude-code/testing'
 
-// Test data made for this repo, in the format Polished Crystal uses. No
-// sprite from the game or the hack is stored here.
+// Test data made for this repository, in each source's format: a shaded
+// square drawn for these tests. No sprite from any game or ROM hack is
+// stored here.
 
-/** A 16×16 two-frame pic: a square with a light, then a dark, body. */
-const PIC_BASE64 =
-  'iVBORw0KGgoAAAANSUhEUgAAABAAAAAgAgAAAAB0Ur+xAAAAI0lEQVR42mP4DwQMCOIPA4M9w59Vq8giQHqxmhcaShYB1AsACNhN0WM2a8AAAAAASUVORK5CYII='
+/** Polished Crystal format: a 16×16 two-frame greyscale pic. */
+const PIC =
+  'iVBORw0KGgoAAAANSUhEUgAAABAAAAAgAgAAAAB0Ur+xAAAAI0lEQVR42mP4DwQMCOIPA4M9w59V'
+  + 'q8giQHqxmhcaShYB1AsACNhN0WM2a8AAAAAASUVORK5CYII='
 const ANIM = '\tframe 1, 06\n\tsetrepeat 2\n\tframe 0, 06\n\tframe 1, 06\n\tdorepeat 2\n\tendanim\n'
 const NORMAL = '\tRGB 31, 24, 00\n\tRGB 20, 08, 00\n'
 const SHINY = '\tRGB 00, 24, 31\n\tRGB 00, 08, 20\n'
 
-const TREE = {
+/** Prism format: the same square as a coloured RGBA strip. */
+const STRIP =
+  'iVBORw0KGgoAAAANSUhEUgAAABAAAAAgCAYAAAAbifjMAAAAMklEQVR42mNgGHbgP5EYtwE/DuDH'
+  + 'owaMGjBEDKA0L4yWB0DJBQ748agBowYMEQNIzQsAmFTnTCr64PQAAAAASUVORK5CYII='
+
+/** Pokémon Crystal (PokeAPI) format: the same square as an animated GIF. */
+const GIF =
+  'R0lGODlhEAAQAPEAAAAAAKBAAPjAAP///yH/C05FVFNDQVBFMi4wAwEAAAAh+QQJDAADACwAAAAA'
+  + 'EAAQAAACkdy4cePGjRs3bty4cePGjRs3bty4cePGjRs3btw4ECBAgAAxbtw4UKJEiRIxbtw4UKJE'
+  + 'iRIxbtw4UKJEiRIxbtw4UKJEiRIxbtw4UKJEiRIxbtw4UKJEiRIxbtw4UKJEiRIxbtw4UKJEiRIx'
+  + 'btw4UKJEiRIxbtw4UKJEiRIxbtw4UKJEiRIxbtw4ECBAgAAxbgUAIfkECQwAAwAsAAAAABAAEAAA'
+  + 'ApHcuHHjxo0bN27cuHHjxo0bN27cuHHjxo0bN27cOBAgQIAAMW7cODBhwoQJMW7cODBhwoQJMW7c'
+  + 'ODBhwoQJMW7cODBhwoQJMW7cODBhwoQJMW7cODBhwoQJMW7cODBhwoQJMW7cODBhwoQJMW7cODBh'
+  + 'woQJMW7cODBhwoQJMW7cODBhwoQJMW7cOBAgQIAAMW4FADs='
+
+const CRYSTAL_TREE = { tree: [{ path: '1.gif', type: 'blob' }, { path: 'shiny/1.gif', type: 'blob' }] }
+const SPECIES = { results: [{ name: 'testmon' }] }
+const POLISHED_TREE = {
   tree: [
-    { path: 'testmon', type: 'tree' },
-    { path: 'testmon/front.png', type: 'blob' },
-    { path: 'testmon/anim.asm', type: 'blob' },
+    { path: 'testmon_plain/front.png', type: 'blob' },
+    { path: 'testmon_plain/anim.asm', type: 'blob' },
+    { path: 'testmon_alolan/front.png', type: 'blob' },
+    { path: 'testmon_alolan/anim.asm', type: 'blob' },
     { path: 'testmon/normal.pal', type: 'blob' },
     { path: 'testmon/shiny.pal', type: 'blob' },
     { path: 'egg/front.png', type: 'blob' },
     { path: 'egg/normal.pal', type: 'blob' },
+  ],
+}
+const PRISM_MANIFEST = {
+  assets: [
+    { type: 'pokemon', slug: 'testmon', path: 'pokemon/testmon', has_shiny: false },
+    { type: 'pokemon', slug: 'othermon', path: 'pokemon/othermon', has_shiny: false },
+    { type: 'overworld', slug: 'overworld_testmon', path: 'overworld/testmon' },
   ],
 }
 
@@ -36,29 +64,44 @@ const BAND = {
   },
 } as const
 
+const ONLY = {
+  crystal: { crystal: true, polishedCrystal: false, prism: false },
+  polished: { crystal: false, polishedCrystal: true, prism: false },
+  prism: { crystal: false, polishedCrystal: false, prism: true },
+} as const
+
 const reply = (status: number, text: string) => ({
   value: { status, ok: status === 200, headers: {}, text },
 })
+const json = (body: unknown) => reply(200, JSON.stringify(body))
+const contents = (base64: string) => json({ content: base64 })
 
-/** Answers each URL the mod fetches the way GitHub would. */
-const github = (url: string) => {
-  if (url.includes('/git/trees/')) return reply(200, JSON.stringify(TREE))
-  if (url.includes('/contents/') && url.includes('testmon/front.png')) {
-    return reply(200, JSON.stringify({ content: PIC_BASE64 }))
-  }
-  if (url.endsWith('testmon/anim.asm')) return reply(200, ANIM)
-  if (url.endsWith('testmon/normal.pal')) return reply(200, NORMAL)
-  if (url.endsWith('testmon/shiny.pal')) return reply(200, SHINY)
+/** Answers each URL the mod fetches the way GitHub and PokeAPI would. */
+function internet(url: string) {
+  if (url.includes('PokeAPI/sprites/git/trees/')) return json(CRYSTAL_TREE)
+  if (url.startsWith('https://pokeapi.co/')) return json(SPECIES)
+  if (url.includes('PokeAPI/sprites/contents/')) return contents(GIF)
+  if (url.includes('polishedcrystal/git/trees/')) return json(POLISHED_TREE)
+  if (url.includes('polishedcrystal/contents/')) return contents(PIC)
+  if (url.endsWith('/anim.asm')) return reply(200, ANIM)
+  if (url.endsWith('/normal.pal')) return reply(200, NORMAL)
+  if (url.endsWith('/shiny.pal')) return reply(200, SHINY)
+  if (url.endsWith('pokemon-prism-assets/main/manifest.json')) return json(PRISM_MANIFEST)
+  if (url.includes('pokemon-prism-assets/contents/')) return contents(STRIP)
   return reply(404, 'Not Found')
 }
 
-test('draws a fetched Pokémon above the prompt and animates it', async ($, on) => {
+type Engine = Parameters<TestBody>[0]
+type On = Parameters<TestBody>[1]
+
+/** Starts a terminal session with the mocked internet, and records each URL fetched. */
+async function startSession($: Engine, on: On) {
   const clock = mock.clock(on)
   mock.store(on)
   const fetched: string[] = []
   on('http.fetch', (_, e) => {
     fetched.push(e.url)
-    return github(e.url)
+    return internet(e.url)
   })
   const blits: string[] = []
   on('ui.blit', (_, e) => {
@@ -66,29 +109,45 @@ test('draws a fetched Pokémon above the prompt and animates it', async ($, on) 
     return { value: {} }
   })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
-
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   await clock.settle()
+  return { clock, fetched, blits }
+}
 
-  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  const image = await ui.find({ type: 'Image', key: 'sprite' })
-  expect(image?.props.rows).toBe(3)
-  expect(image?.props.columns).toBe(6)
-  expect(await ui.find({ type: 'Text' })).toBeUndefined()
+for (const [source, options] of Object.entries(ONLY)) {
+  test(`draws and animates a sprite from ${source} alone`, { options }, async ($, on) => {
+    const { clock, blits } = await startSession($, on)
 
-  // The egg folder is excluded, so only testmon's files are fetched.
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    const image = await ui.find({ type: 'Image', key: 'sprite' })
+    expect(image?.props.rows).toBe(3)
+    expect(image?.props.columns).toBe(6)
+    expect(await ui.find({ type: 'Text' })).toBeUndefined()
+
+    await clock.advance(10_000)
+    expect(blits.length).toBeGreaterThan(0)
+    expect(blits.every(key => key === 'sprite')).toBe(true)
+    await ui.unmount()
+  })
+}
+
+test('keeps one sprite per species and form, in source order', async ($, on) => {
+  // Crystal has testmon; Polished Crystal has plain and Alolan testmon;
+  // Prism has testmon and othermon. Plain testmon must come from Crystal.
+  const { fetched } = await startSession($, on)
+  const images = fetched.filter(url => url.includes('/contents/'))
+  expect(images.length).toBe(1)
+  expect(images.some(url => url.includes('testmon_plain') || url.includes('pokemon/testmon/'))).toBe(false)
   expect(fetched.some(url => url.includes('egg/'))).toBe(false)
-
-  await clock.advance(10_000)
-  expect(blits.length).toBeGreaterThan(0)
-  expect(blits.every(key => key === 'sprite')).toBe(true)
-  await ui.unmount()
 })
 
-test('falls back to a cached Pokémon when GitHub fails', async ($, on) => {
+test('falls back to a cached sprite when the network fails', async ($, on) => {
   const clock = mock.clock(on)
   mock.store(on, {
-    'pic:testmon': { png: PIC_BASE64, anim: ANIM, normal: NORMAL, shiny: SHINY },
+    'sprite:polished:testmon_plain': {
+      entry: { source: 'polished', name: 'testmon_plain', species: 'testmon', form: '', paths: {} },
+      files: { pic: PIC, anim: ANIM, palette: NORMAL },
+    },
   })
   on('http.fetch', () => reply(403, '{"message":"API rate limit exceeded"}'))
   on('ui.blit', () => ({ value: {} }))
@@ -102,19 +161,23 @@ test('falls back to a cached Pokémon when GitHub fails', async ($, on) => {
   await ui.unmount()
 })
 
-test('a cached sprite list is used without a network call', async ($, on) => {
+test('uses cached lists and sprites without a network call', { options: ONLY.prism }, async ($, on) => {
   const clock = mock.clock(on, { now: 1_000 })
+  const entry = {
+    source: 'prism',
+    name: 'testmon',
+    species: 'testmon',
+    form: '',
+    paths: { image: 'pokemon/testmon/front.png', shiny: 'pokemon/testmon/front.png' },
+  }
   mock.store(on, {
-    index: {
-      fetchedAt: 0,
-      entries: [{ name: 'testmon', anim: 'testmon/anim.asm', normal: 'testmon/normal.pal', shiny: 'testmon/shiny.pal' }],
-    },
-    'pic:testmon': { png: PIC_BASE64, anim: ANIM, normal: NORMAL, shiny: SHINY },
+    'list:prism': { fetchedAt: 0, entries: [entry] },
+    'sprite:prism:testmon': { entry, files: { image: STRIP } },
   })
   const fetched: string[] = []
   on('http.fetch', (_, e) => {
     fetched.push(e.url)
-    return github(e.url)
+    return internet(e.url)
   })
   on('ui.blit', () => ({ value: {} }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))

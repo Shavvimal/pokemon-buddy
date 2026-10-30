@@ -3,21 +3,34 @@
  * in the Game Boy Color style of Pokémon Crystal at the right end of the band
  * above the prompt.
  *
- * The sprites come from Polished Crystal (github.com/Rangi42/polishedcrystal),
- * a Pokémon Crystal ROM hack whose source keeps each Pokémon as a 4-shade PNG
- * strip of frames, a frame script and a 2-colour palette. This mod ships no
- * sprites: it fetches them from that public repository when a session starts,
- * caches a few for offline sessions, and plays them the way the game does.
- * README.md and NOTICE.md credit the sprite artists and rights holders.
+ * The sprites come from three public repositories, gathered into one Pokédex
+ * with each species and form once:
+ * - Pokémon Crystal's own animated sprites, from PokeAPI/sprites;
+ * - Polished Crystal (Rangi42/polishedcrystal), a Crystal ROM hack that adds
+ *   later relatives and regional forms in Crystal's own format;
+ * - Pokémon Prism, from a third-party archive of its extracted graphics
+ *   (bottlebrushes/pokemon-prism-assets); off unless the user switches it on.
+ * This mod ships no sprites: it fetches them when a session starts, caches a
+ * few for offline sessions, and plays them the way the games do. README.md
+ * and NOTICE.md credit the artists and rights holders.
  *
  * Sections, top to bottom: configuration, base64, inflate, PNG decoding,
- * pic animation, sprite shaping, sprite source, playback, and hooks.
- * Pictures need a terminal with a graphics protocol (Ghostty, kitty, or
- * iTerm2 3.5+); anywhere else the band stays empty.
+ * GIF decoding, pic animation, sprite shaping, sprite sources, collection,
+ * playback, and hooks. Pictures need a terminal with a graphics protocol
+ * (Ghostty, kitty, or iTerm2 3.5+); anywhere else the band stays empty.
  */
-import type { HttpInit, HttpResponse, ImageSource, Register, Timer } from 'claude-code'
+import type {
+  HttpInit,
+  HttpResponse,
+  ImageSource,
+  PluginOptions,
+  Register,
+  Timer,
+} from 'claude-code'
 
 // ── Configuration ───────────────────────────────────────────────────────────
+// Which sources are on is a per-user setting (`userConfig` in plugin.json);
+// the rest is set here.
 
 const CONFIG = {
   /** Sprite height in terminal rows: 3 is small, 6 shows every pixel. */
@@ -28,16 +41,16 @@ const CONFIG = {
   pixelScale: 2,
   /** Rest between animation loops, in ms; 0 loops without a break. */
   loopPauseMs: 3000,
-  /** One session in this many gets the shiny palette; 0 turns shinies off. */
+  /** Time per frame for sprites kept as plain frame strips (Prism), in ms. */
+  stripFrameMs: 7 * (1000 / 60),
+  /** One session in this many gets the shiny colours; 0 turns shinies off. */
   shinyOdds: 512,
-  /** Pokémon kept in the store for offline sessions, about 3 KB each. */
+  /** Sprites kept in the store for offline sessions, 2 to 25 KB each. */
   cacheLimit: 60,
-  /** How long the list of Pokémon is kept before it is fetched again, in ms. */
-  indexMaxAgeMs: 7 * 24 * 60 * 60 * 1000,
-  /** Sprite folders left out of the draw. */
+  /** How long each source's sprite list is kept before it is fetched again, in ms. */
+  listMaxAgeMs: 7 * 24 * 60 * 60 * 1000,
+  /** Polished Crystal folders left out of the draw. */
   exclude: ['egg'],
-  /** Where the sprites live. */
-  repo: { owner: 'Rangi42', name: 'polishedcrystal', ref: 'master', dir: 'gfx/pokemon' },
 } as const
 
 // ── Base64 ──────────────────────────────────────────────────────────────────
@@ -235,21 +248,23 @@ function inflateZlib(data: Uint8Array): Uint8Array {
 }
 
 // ── PNG decoding ────────────────────────────────────────────────────────────
-// Reads the greyscale PNGs Game Boy graphics are kept in: non-interlaced,
-// colour type 0, 1 to 8 bits per pixel. Each pixel becomes a shade from
-// 0 (black) to 3 (white).
+// Reads the two PNG kinds the sources use, both non-interlaced: greyscale
+// (colour type 0, 1 to 8 bits), where each pixel becomes a Game Boy shade
+// from 0 (black) to 3 (white), and 8-bit RGBA (colour type 6).
 
-type Greyscale = { width: number; height: number; shades: Uint8Array }
+type Greyscale = { kind: 'shades'; width: number; height: number; shades: Uint8Array }
+type Rgba = { kind: 'rgba'; width: number; height: number; rgba: Uint8Array }
 
 const PNG_SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10]
 
-function decodeGreyscalePng(bytes: Uint8Array): Greyscale {
+function decodePng(bytes: Uint8Array): Greyscale | Rgba {
   if (PNG_SIGNATURE.some((value, i) => bytes[i] !== value)) throw new Error('not a PNG')
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
 
   let width = 0
   let height = 0
   let depth = 0
+  let colourType = -1
   const data: Uint8Array[] = []
   for (let at = 8; at + 8 <= bytes.length; ) {
     const length = view.getUint32(at)
@@ -259,8 +274,10 @@ function decodeGreyscalePng(bytes: Uint8Array): Greyscale {
       width = view.getUint32(at + 8)
       height = view.getUint32(at + 12)
       depth = body[8]!
-      const isPlainGreyscale = body[9] === 0 && body[12] === 0 && depth <= 8
-      if (!isPlainGreyscale) throw new Error('PNG is not plain greyscale')
+      colourType = body[9]!
+      const isSupported =
+        body[12] === 0 && ((colourType === 0 && depth <= 8) || (colourType === 6 && depth === 8))
+      if (!isSupported) throw new Error('PNG is neither plain greyscale nor 8-bit RGBA')
     } else if (type === 'IDAT') {
       data.push(body)
     } else if (type === 'IEND') {
@@ -270,8 +287,13 @@ function decodeGreyscalePng(bytes: Uint8Array): Greyscale {
   }
   if (width === 0 || data.length === 0) throw new Error('PNG has no image data')
 
+  const raw = inflateZlib(concatBytes(data))
+  if (colourType === 6) {
+    return { kind: 'rgba', width, height, rgba: unfilter(raw, width * 4, height, 4) }
+  }
+
   const rowBytes = Math.ceil((width * depth) / 8)
-  const rows = unfilter(inflateZlib(concatBytes(data)), rowBytes, height)
+  const rows = unfilter(raw, rowBytes, height, 1)
   const maxSample = (1 << depth) - 1
   const shades = new Uint8Array(width * height)
   for (let y = 0; y < height; y++) {
@@ -282,20 +304,23 @@ function decodeGreyscalePng(bytes: Uint8Array): Greyscale {
       shades[y * width + x] = Math.round((sample * 3) / maxSample)
     }
   }
-  return { width, height, shades }
+  return { kind: 'shades', width, height, shades }
 }
 
-/** Undoes PNG's per-row filters; greyscale up to 8 bits has 1 byte per pixel. */
-function unfilter(raw: Uint8Array, rowBytes: number, height: number): Uint8Array {
+/**
+ * Undoes PNG's per-row filters. `stride` is the bytes per pixel the filters
+ * look back by: 1 for greyscale up to 8 bits, 4 for 8-bit RGBA.
+ */
+function unfilter(raw: Uint8Array, rowBytes: number, height: number, stride: number): Uint8Array {
   const rows = new Uint8Array(rowBytes * height)
   for (let y = 0; y < height; y++) {
     const filter = raw[y * (rowBytes + 1)]
     const line = raw.subarray(y * (rowBytes + 1) + 1, (y + 1) * (rowBytes + 1))
     const at = y * rowBytes
     for (let x = 0; x < rowBytes; x++) {
-      const left = x > 0 ? rows[at + x - 1]! : 0
+      const left = x >= stride ? rows[at + x - stride]! : 0
       const up = y > 0 ? rows[at + x - rowBytes]! : 0
-      const upLeft = x > 0 && y > 0 ? rows[at + x - rowBytes - 1]! : 0
+      const upLeft = x >= stride && y > 0 ? rows[at + x - rowBytes - stride]! : 0
       rows[at + x] = (line[x]! + predict(filter, left, up, upLeft)) & 0xff
     }
   }
@@ -335,6 +360,239 @@ function concatBytes(parts: Uint8Array[]): Uint8Array {
   return joined
 }
 
+// ── GIF decoding ────────────────────────────────────────────────────────────
+// A GIF89a decoder covering what animated sprites use: global and local
+// colour tables, transparency, interlacing, and disposal methods 0 to 3.
+
+type GraphicControl = { delayMs: number; disposal: number; transparent: number }
+
+const DEFAULT_CONTROL: GraphicControl = { delayMs: 100, disposal: 0, transparent: -1 }
+/** Browsers treat a delay under 20 ms as 100 ms; so does this decoder. */
+const MIN_DELAY_MS = 20
+
+class ByteReader {
+  private offset = 0
+
+  constructor(private readonly data: Uint8Array) {}
+
+  u8(): number {
+    if (this.offset >= this.data.length) throw new Error('GIF ends early')
+    return this.data[this.offset++]!
+  }
+
+  u16(): number {
+    return this.u8() | (this.u8() << 8)
+  }
+
+  take(length: number): Uint8Array {
+    if (this.offset + length > this.data.length) throw new Error('GIF ends early')
+    const slice = this.data.subarray(this.offset, this.offset + length)
+    this.offset += length
+    return slice
+  }
+
+  /** Reads a run of length-prefixed sub-blocks into one array. */
+  subBlocks(): Uint8Array {
+    const parts: Uint8Array[] = []
+    let total = 0
+    for (let size = this.u8(); size > 0; size = this.u8()) {
+      parts.push(this.take(size))
+      total += size
+    }
+    const joined = new Uint8Array(total)
+    let at = 0
+    for (const part of parts) {
+      joined.set(part, at)
+      at += part.length
+    }
+    return joined
+  }
+}
+
+function decodeGif(bytes: Uint8Array): Animation {
+  const reader = new ByteReader(bytes)
+  const signature = String.fromCharCode(...reader.take(6))
+  if (!signature.startsWith('GIF')) throw new Error('not a GIF')
+
+  const width = reader.u16()
+  const height = reader.u16()
+  const screen = reader.u8()
+  reader.take(2) // background colour index and pixel aspect: unused
+  const globalTable = screen & 0x80 ? reader.take(3 * (2 << (screen & 7))) : undefined
+
+  const canvas = new Uint8Array(width * height * 4)
+  const frames: Frame[] = []
+  let control = DEFAULT_CONTROL
+
+  for (;;) {
+    const block = reader.u8()
+    if (block === 0x3b) break // trailer
+
+    if (block === 0x21) {
+      const label = reader.u8()
+      if (label === 0xf9) {
+        control = readGraphicControl(reader)
+      } else {
+        reader.subBlocks() // comments, application data: skipped
+      }
+      continue
+    }
+
+    if (block !== 0x2c) throw new Error(`unknown GIF block 0x${block.toString(16)}`)
+
+    const left = reader.u16()
+    const top = reader.u16()
+    const frameWidth = reader.u16()
+    const frameHeight = reader.u16()
+    const image = reader.u8()
+    const table = image & 0x80 ? reader.take(3 * (2 << (image & 7))) : globalTable
+    if (!table) throw new Error('GIF frame has no colour table')
+
+    const minCodeSize = reader.u8()
+    const indices = lzwDecode(reader.subBlocks(), minCodeSize, frameWidth * frameHeight)
+    const rowOrder = image & 0x40 ? interlacedRows(frameHeight) : undefined
+    const saved = control.disposal === 3 ? canvas.slice() : undefined
+
+    for (let y = 0; y < frameHeight; y++) {
+      const canvasY = top + (rowOrder ? rowOrder[y]! : y)
+      if (canvasY >= height) continue
+      for (let x = 0; x < frameWidth; x++) {
+        const index = indices[y * frameWidth + x]!
+        const canvasX = left + x
+        if (index === control.transparent || canvasX >= width) continue
+        const pixel = (canvasY * width + canvasX) * 4
+        canvas[pixel] = table[index * 3]!
+        canvas[pixel + 1] = table[index * 3 + 1]!
+        canvas[pixel + 2] = table[index * 3 + 2]!
+        canvas[pixel + 3] = 255
+      }
+    }
+
+    frames.push({ rgba: canvas.slice(), delayMs: control.delayMs })
+
+    if (control.disposal === 2) {
+      clearRect(canvas, width, left, top, frameWidth, frameHeight)
+    } else if (saved) {
+      canvas.set(saved)
+    }
+    control = DEFAULT_CONTROL
+  }
+
+  if (frames.length === 0) throw new Error('GIF has no frames')
+  return { width, height, frames }
+}
+
+function readGraphicControl(reader: ByteReader): GraphicControl {
+  reader.u8() // block size, always 4
+  const packed = reader.u8()
+  const delayCs = reader.u16()
+  const transparentIndex = reader.u8()
+  reader.u8() // block terminator
+  const delayMs = delayCs * 10
+  return {
+    delayMs: delayMs < MIN_DELAY_MS ? 100 : delayMs,
+    disposal: (packed >> 2) & 7,
+    transparent: packed & 1 ? transparentIndex : -1,
+  }
+}
+
+/** Variable-width LZW, as GIF packs it: least significant bit first. */
+function lzwDecode(data: Uint8Array, minCodeSize: number, pixelCount: number): Uint8Array {
+  const out = new Uint8Array(pixelCount)
+  const clearCode = 1 << minCodeSize
+  const endCode = clearCode + 1
+  const prefix = new Uint16Array(4096)
+  const suffix = new Uint8Array(4096)
+  const stack = new Uint8Array(4097)
+
+  let codeSize = minCodeSize + 1
+  let nextCode = endCode + 1
+  let previous = -1
+  let firstByte = 0
+  let buffer = 0
+  let bits = 0
+  let written = 0
+  let at = 0
+
+  while (written < pixelCount) {
+    while (bits < codeSize && at < data.length) {
+      buffer |= data[at++]! << bits
+      bits += 8
+    }
+    if (bits < codeSize) break
+
+    const code = buffer & ((1 << codeSize) - 1)
+    buffer >>>= codeSize
+    bits -= codeSize
+
+    if (code === clearCode) {
+      codeSize = minCodeSize + 1
+      nextCode = endCode + 1
+      previous = -1
+      continue
+    }
+    if (code === endCode) break
+
+    if (previous === -1) {
+      out[written++] = code
+      previous = code
+      firstByte = code
+      continue
+    }
+
+    // Unwind the code's string onto the stack, last byte first. A code not
+    // yet in the table is the previous string plus its own first byte.
+    let depth = 0
+    let current = code
+    if (code >= nextCode) {
+      stack[depth++] = firstByte
+      current = previous
+    }
+    while (current >= clearCode) {
+      stack[depth++] = suffix[current]!
+      current = prefix[current]!
+    }
+    firstByte = current
+    stack[depth++] = current
+    while (depth > 0 && written < pixelCount) out[written++] = stack[--depth]!
+
+    if (nextCode < 4096) {
+      prefix[nextCode] = previous
+      suffix[nextCode] = firstByte
+      nextCode++
+      if (nextCode === 1 << codeSize && codeSize < 12) codeSize++
+    }
+    previous = code
+  }
+
+  return out
+}
+
+/** Maps each stored row to its place on screen for an interlaced frame. */
+function interlacedRows(height: number): number[] {
+  const order: number[] = []
+  for (const [start, step] of [[0, 8], [4, 8], [2, 4], [1, 2]] as const) {
+    for (let row = start; row < height; row += step) order.push(row)
+  }
+  return order
+}
+
+function clearRect(
+  canvas: Uint8Array,
+  width: number,
+  left: number,
+  top: number,
+  rectWidth: number,
+  rectHeight: number
+): void {
+  const height = canvas.length / 4 / width
+  for (let y = top; y < Math.min(top + rectHeight, height); y++) {
+    const start = (y * width + left) * 4
+    const end = (y * width + Math.min(left + rectWidth, width)) * 4
+    canvas.fill(0, start, end)
+  }
+}
+
 // ── Pic animation ───────────────────────────────────────────────────────────
 // Plays a Crystal "pic": a vertical strip of square frames, frame 0 the
 // resting pose, run by a frame script of `frame N, ticks`, `setrepeat N`,
@@ -367,6 +625,27 @@ function animatePic(pic: Greyscale, script: string | null, palette: readonly [Rg
     frames: [
       ...steps.map(step => ({ rgba: frameAt(step.frame), delayMs: step.ticks * TICK_MS })),
       { rgba: frameAt(0), delayMs: 0 }, // back to rest; the loop pause is added later
+    ],
+  }
+}
+
+/**
+ * Plays an RGBA strip of square frames in order, each for `frameMs`: the
+ * Prism archive keeps animations unrolled this way, without timings.
+ */
+function animateStrip(strip: Rgba, frameMs: number): Animation {
+  const size = strip.width
+  const count = Math.max(1, Math.floor(strip.height / size))
+  const frameBytes = size * size * 4
+  const frames = Array.from({ length: count }, (_, i) =>
+    strip.rgba.slice(i * frameBytes, (i + 1) * frameBytes)
+  )
+  return {
+    width: size,
+    height: size,
+    frames: [
+      ...frames.map(rgba => ({ rgba, delayMs: frameMs })),
+      { rgba: frames[0]!, delayMs: 0 }, // back to rest; the loop pause is added later
     ],
   }
 }
@@ -513,11 +792,223 @@ function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
   return true
 }
 
-// ── Sprite source ───────────────────────────────────────────────────────────
-// Lists the Pokémon in the Polished Crystal repository, picks one, fetches
-// its pic, frame script and palettes, and caches them in the plugin store.
-// A failed fetch falls back to a Pokémon cached by an earlier session. The
-// engine is reached only through the ports the hooks pass in.
+// ── Sprite sources ──────────────────────────────────────────────────────────
+// Each public repository is a strategy: how to list its sprites, which files
+// one sprite needs, and how those files become an animation. Sources share no
+// base class; each is a plain object that meets `SpriteSource`, and the
+// Pokédex below composes them. None of their files is stored in this mod's
+// repository: each is fetched at run time.
+
+type SourceId = 'crystal' | 'polished' | 'prism'
+type Repo = { owner: string; name: string; ref: string; dir: string }
+
+/** One sprite in one source, with its species and form for de-duplication. */
+type Entry = {
+  source: SourceId
+  name: string
+  species: string
+  form: string
+  /** Paths relative to the source's `repo.dir`, by role. */
+  paths: Record<string, string>
+}
+
+/** A file one sprite needs: binary files arrive as base64, text as text. */
+type FileNeed = { role: string; path: string; isBinary: boolean }
+type Files = Record<string, string>
+
+/** What a source may use to list its sprites. */
+interface Fetcher {
+  json<T>(url: string): Promise<T>
+}
+
+interface SpriteSource {
+  readonly id: SourceId
+  readonly repo: Repo
+  /** Lists every sprite, in as few requests as it can. */
+  list(fetcher: Fetcher): Promise<Entry[]>
+  /** The files one sprite needs, with its normal or shiny colours. */
+  needs(entry: Entry, isShiny: boolean): FileNeed[]
+  /** Turns those files into frames. */
+  animate(files: Files): Animation
+}
+
+const github = {
+  tree: (repo: Repo) =>
+    `https://api.github.com/repos/${repo.owner}/${repo.name}/git/trees/${repo.ref}:${repo.dir}?recursive=1`,
+  contents: (repo: Repo, path: string) =>
+    `https://api.github.com/repos/${repo.owner}/${repo.name}/contents/${joinPath(repo.dir, path)}?ref=${repo.ref}`,
+  raw: (repo: Repo, path: string) =>
+    `https://raw.githubusercontent.com/${repo.owner}/${repo.name}/${repo.ref}/${joinPath(repo.dir, path)}`,
+}
+
+const joinPath = (dir: string, path: string) => (dir ? `${dir}/${path}` : path)
+
+async function listFiles(fetcher: Fetcher, repo: Repo): Promise<string[]> {
+  const { tree } = await fetcher.json<{ tree: { path: string; type: string }[] }>(github.tree(repo))
+  return tree.filter(item => item.type === 'blob').map(item => item.path)
+}
+
+/** Species whose folder names hold an underscore of their own. */
+const UNDERSCORE_SPECIES = [
+  'mr__mime', 'mr__rime', 'mime_jr_', 'porygon_z', 'ho_oh',
+  'nidoran_f', 'nidoran_m', 'farfetch_d', 'sirfetch_d',
+]
+
+const canonical = (text: string) => text.toLowerCase().replace(/[^a-z0-9]/g, '')
+
+/**
+ * Splits a folder name into species and form: `raichu_alolan` is Raichu in
+ * its Alolan form, and `pikachu_plain` is plain Pikachu.
+ */
+function splitName(name: string): { species: string; form: string } {
+  const lower = name.toLowerCase()
+  const special = UNDERSCORE_SPECIES.find(s => lower === s || lower.startsWith(`${s}_`))
+  const species = special ?? lower.split('_')[0] ?? lower
+  const form = canonical(lower.slice(species.length))
+  return { species: canonical(species), form: form === 'plain' ? '' : form }
+}
+
+/** One binary image, normal or shiny: the shape of two of the sources. */
+const imageNeeds = (entry: Entry, isShiny: boolean): FileNeed[] => [
+  { role: 'image', path: (isShiny ? entry.paths.shiny : entry.paths.image)!, isBinary: true },
+]
+
+const CRYSTAL_REPO: Repo = {
+  owner: 'PokeAPI',
+  name: 'sprites',
+  ref: 'master',
+  dir: 'sprites/pokemon/versions/generation-ii/crystal/animated',
+}
+const SPECIES_NAMES_URL = 'https://pokeapi.co/api/v2/pokemon-species?limit=251'
+
+/** Pokémon Crystal's own sprites, as animated GIFs, from PokeAPI. */
+const crystal: SpriteSource = {
+  id: 'crystal',
+  repo: CRYSTAL_REPO,
+  async list(fetcher) {
+    const [paths, { results }] = await Promise.all([
+      listFiles(fetcher, CRYSTAL_REPO),
+      fetcher.json<{ results: { name: string }[] }>(SPECIES_NAMES_URL),
+    ])
+    const files = new Set(paths)
+    return paths.flatMap(path => {
+      const match = /^(\d+)(?:-(\w+))?\.gif$/.exec(path)
+      const species = match && results[Number(match[1]) - 1]?.name
+      if (!match || !species) return []
+      const shiny = `shiny/${path}`
+      const entry: Entry = {
+        source: 'crystal',
+        name: path.replace('.gif', ''),
+        species: canonical(species),
+        form: canonical(match[2] ?? ''),
+        paths: { image: path, shiny: files.has(shiny) ? shiny : path },
+      }
+      return [entry]
+    })
+  },
+  needs: imageNeeds,
+  animate: files => decodeGif(fromBase64(files.image!)),
+}
+
+const POLISHED_REPO: Repo = { owner: 'Rangi42', name: 'polishedcrystal', ref: 'master', dir: 'gfx/pokemon' }
+
+/** Polished Crystal's pics, frame scripts and palettes. */
+const polished: SpriteSource = {
+  id: 'polished',
+  repo: POLISHED_REPO,
+  async list(fetcher) {
+    const paths = await listFiles(fetcher, POLISHED_REPO)
+    const files = new Set(paths)
+    const excluded = new Set<string>(CONFIG.exclude)
+    // A form without palettes of its own uses its species' palettes.
+    const findUp = (name: string, file: string): string | undefined => {
+      for (const parts = name.split('_'); parts.length > 0; parts.pop()) {
+        const path = `${parts.join('_')}/${file}`
+        if (files.has(path)) return path
+      }
+      return undefined
+    }
+    return paths.flatMap(path => {
+      const name = /^([^/]+)\/front\.png$/.exec(path)?.[1]
+      const normal = name && !excluded.has(name) ? findUp(name, 'normal.pal') : undefined
+      if (!name || !normal) return []
+      const anim = `${name}/anim.asm`
+      const entry: Entry = {
+        source: 'polished',
+        name,
+        ...splitName(name),
+        paths: {
+          pic: path,
+          normal,
+          shiny: findUp(name, 'shiny.pal') ?? normal,
+          ...(files.has(anim) ? { anim } : {}),
+        },
+      }
+      return [entry]
+    })
+  },
+  needs: (entry, isShiny) => [
+    { role: 'pic', path: entry.paths.pic!, isBinary: true },
+    ...(entry.paths.anim ? [{ role: 'anim', path: entry.paths.anim, isBinary: false }] : []),
+    { role: 'palette', path: (isShiny ? entry.paths.shiny : entry.paths.normal)!, isBinary: false },
+  ],
+  animate(files) {
+    const pic = decodePng(fromBase64(files.pic!))
+    if (pic.kind !== 'shades') throw new Error('Polished Crystal pic is not greyscale')
+    return animatePic(pic, files.anim ?? null, parsePalette(files.palette!))
+  },
+}
+
+const PRISM_REPO: Repo = { owner: 'bottlebrushes', name: 'pokemon-prism-assets', ref: 'main', dir: '' }
+
+/** Pokémon Prism's sprites, from a third-party archive of its extracted graphics. */
+const prism: SpriteSource = {
+  id: 'prism',
+  repo: PRISM_REPO,
+  async list(fetcher) {
+    type Asset = { type: string; slug: string; path: string; has_shiny?: boolean }
+    const { assets } = await fetcher.json<{ assets: Asset[] }>(github.raw(PRISM_REPO, 'manifest.json'))
+    return assets
+      .filter(asset => asset.type === 'pokemon')
+      .map(asset => {
+        const image = `${asset.path}/front.png`
+        const entry: Entry = {
+          source: 'prism',
+          name: asset.slug,
+          ...splitName(asset.slug),
+          paths: { image, shiny: asset.has_shiny ? `${asset.path}/shiny.png` : image },
+        }
+        return entry
+      })
+  },
+  needs: imageNeeds,
+  animate(files) {
+    const strip = decodePng(fromBase64(files.image!))
+    if (strip.kind !== 'rgba') throw new Error('Prism strip is not RGBA')
+    return animateStrip(strip, CONFIG.stripFrameMs)
+  },
+}
+
+/** Every source, in priority order: the first to have a species and form wins. */
+const SOURCES: readonly SpriteSource[] = [crystal, polished, prism]
+
+/** The `userConfig` switch in plugin.json for each source. */
+const SOURCE_OPTIONS: Record<SourceId, string> = {
+  crystal: 'crystal',
+  polished: 'polishedCrystal',
+  prism: 'prism',
+}
+
+/** The sources this user has on; a switch left unset counts as on. */
+function enabledSources(options: PluginOptions): SpriteSource[] {
+  return SOURCES.filter(source => options[SOURCE_OPTIONS[source.id]] !== false)
+}
+
+// ── Collection ──────────────────────────────────────────────────────────────
+// Three collaborators, composed by the hooks: an HTTP client for GitHub, a
+// cache over the plugin store, and the Pokédex, which gathers the enabled
+// sources into one list with each species and form once, picks a sprite and
+// loads it. The engine is reached only through the ports passed in.
 
 type SourcePorts = {
   now: () => Promise<number>
@@ -530,159 +1021,200 @@ type SourcePorts = {
   }
 }
 
-/** One sprite folder: its paths in the repository, relative to `repo.dir`. */
-type IndexEntry = { name: string; anim: string | null; normal: string; shiny: string }
-type StoredIndex = { fetchedAt: number; entries: IndexEntry[] }
-/** What a cached Pokémon keeps: the pic as base64 PNG, and its text files. */
-type PicRecord = { png: string; anim: string | null; normal: string; shiny: string }
+class HttpClient implements Fetcher {
+  private static readonly USER_AGENT = { 'User-Agent': 'pokemon-buddy (Claude Code mod)' }
+  private static readonly GITHUB_API = {
+    ...HttpClient.USER_AGENT,
+    Accept: 'application/vnd.github+json',
+  }
 
-const INDEX_KEY = 'index'
-const PIC_PREFIX = 'pic:'
-/** Store keys an earlier version of the mod wrote. */
-const LEGACY_PREFIXES = ['gif:']
-const USER_AGENT = { 'User-Agent': 'pokemon-buddy (Claude Code mod)' }
-const GITHUB_API = { ...USER_AGENT, Accept: 'application/vnd.github+json' }
+  constructor(private readonly fetch: SourcePorts['fetch']) {}
 
-const { owner, name: repoName, ref, dir } = CONFIG.repo
-const TREE_URL = `https://api.github.com/repos/${owner}/${repoName}/git/trees/${ref}:${dir}?recursive=1`
-const contentsUrl = (path: string) =>
-  `https://api.github.com/repos/${owner}/${repoName}/contents/${dir}/${path}?ref=${ref}`
-const rawUrl = (path: string) =>
-  `https://raw.githubusercontent.com/${owner}/${repoName}/${ref}/${dir}/${path}`
+  async text(url: string): Promise<string> {
+    const isGitHubApi = url.startsWith('https://api.github.com/')
+    const headers = isGitHubApi ? HttpClient.GITHUB_API : HttpClient.USER_AGENT
+    const response = await this.fetch(url, { headers })
+    if (!response.ok) throw new Error(`${url} answered ${response.status}`)
+    return response.text
+  }
 
-async function summon(ports: SourcePorts): Promise<Sprite> {
-  const record = await freshPic(ports).catch((error: unknown) => cachedPic(ports, error))
-  const isShiny = CONFIG.shinyOdds > 0 && randomInt(CONFIG.shinyOdds) === 0
-  const pic = decodeGreyscalePng(fromBase64(record.png))
-  const palette = parsePalette(isShiny ? record.shiny : record.normal)
-  return shapeSprite(animatePic(pic, record.anim, palette))
-}
+  async json<T>(url: string): Promise<T> {
+    return JSON.parse(await this.text(url)) as T
+  }
 
-async function freshPic(ports: SourcePorts): Promise<PicRecord> {
-  const entry = pickEntry(await loadIndex(ports))
-  if (!entry) throw new Error('the sprite list is empty')
-
-  const key = `${PIC_PREFIX}${entry.name}`
-  const cached = await ports.store.get(key)
-  if (isPicRecord(cached)) return cached
-
-  const [png, anim, normal, shiny] = await Promise.all([
-    fetchBase64(ports, contentsUrl(`${entry.name}/front.png`)),
-    entry.anim ? fetchText(ports, rawUrl(entry.anim)) : null,
-    fetchText(ports, rawUrl(entry.normal)),
-    fetchText(ports, rawUrl(entry.shiny)),
-  ])
-  const record: PicRecord = { png, anim, normal, shiny }
-  await remember(ports, key, record)
-  return record
-}
-
-async function cachedPic(ports: SourcePorts, cause: unknown): Promise<PicRecord> {
-  const keys = (await ports.store.keys()).filter(key => key.startsWith(PIC_PREFIX))
-  const key = keys[randomInt(keys.length)]
-  const record = key ? await ports.store.get(key) : undefined
-  if (!isPicRecord(record)) throw cause
-  return record
-}
-
-/** The sprite list, fetched again once it is older than `indexMaxAgeMs`. */
-async function loadIndex(ports: SourcePorts): Promise<IndexEntry[]> {
-  const now = await ports.now()
-  const stored = (await ports.store.get(INDEX_KEY)) as StoredIndex | undefined
-  if (stored && now - stored.fetchedAt < CONFIG.indexMaxAgeMs) return stored.entries
-
-  try {
-    const response = await ports.fetch(TREE_URL, { headers: GITHUB_API })
-    if (!response.ok) throw new Error(`GitHub answered ${response.status} for the sprite list`)
-    const { tree } = JSON.parse(response.text) as { tree: { path: string; type: string }[] }
-    const entries = buildIndex(tree.filter(item => item.type === 'blob').map(item => item.path))
-    await ports.store.set(INDEX_KEY, { fetchedAt: now, entries } satisfies StoredIndex)
-    await dropLegacyKeys(ports)
-    return entries
-  } catch (error) {
-    if (stored) return stored.entries
-    throw error
+  /**
+   * Fetches a binary file through the GitHub contents API, which sends it as
+   * base64 JSON: the host's fetch hands back text, which would mangle bytes.
+   */
+  async base64(repo: Repo, path: string): Promise<string> {
+    const { content } = await this.json<{ content?: string }>(github.contents(repo, path))
+    if (!content) throw new Error(`${path} came back empty`)
+    return content.replace(/\s/g, '')
   }
 }
 
-/**
- * One entry per folder that holds a front pic. A form without palettes of
- * its own (`dudunsparce_two_segment`) uses its species' (`dudunsparce`).
- */
-function buildIndex(paths: string[]): IndexEntry[] {
-  const files = new Set(paths)
-  const excluded = new Set<string>(CONFIG.exclude)
-  const findUp = (name: string, file: string): string | null => {
-    for (const parts = name.split('_'); parts.length > 0; parts.pop()) {
-      const path = `${parts.join('_')}/${file}`
-      if (files.has(path)) return path
+type StoredList = { fetchedAt: number; entries: Entry[] }
+type StoredSprite = { entry: Entry; files: Files }
+
+class SpriteCache {
+  private static readonly LIST = 'list:'
+  private static readonly SPRITE = 'sprite:'
+  /** Keys an earlier version of the mod wrote. */
+  private static readonly LEGACY = (key: string) =>
+    key === 'index' || key.startsWith('gif:') || key.startsWith('pic:')
+
+  constructor(private readonly store: SourcePorts['store']) {}
+
+  async list(source: SourceId): Promise<StoredList | undefined> {
+    return (await this.store.get(`${SpriteCache.LIST}${source}`)) as StoredList | undefined
+  }
+
+  async saveList(source: SourceId, list: StoredList): Promise<void> {
+    await this.store.set(`${SpriteCache.LIST}${source}`, list)
+  }
+
+  async sprite(entry: Entry): Promise<Files | undefined> {
+    const stored = (await this.store.get(this.spriteKey(entry))) as StoredSprite | undefined
+    return stored?.files
+  }
+
+  /** Stores a sprite and drops the oldest ones past the cache limit. */
+  async saveSprite(entry: Entry, files: Files): Promise<void> {
+    await this.store.set(this.spriteKey(entry), { entry, files } satisfies StoredSprite)
+    const keys = (await this.store.keys()).filter(key => key.startsWith(SpriteCache.SPRITE))
+    for (const old of keys.slice(0, Math.max(0, keys.length - CONFIG.cacheLimit))) {
+      await this.store.delete(old)
     }
-    return null
   }
 
-  const entries: IndexEntry[] = []
-  for (const path of paths) {
-    const match = /^([^/]+)\/front\.png$/.exec(path)
-    const name = match?.[1]
-    if (!name || excluded.has(name)) continue
-    const normal = findUp(name, 'normal.pal')
-    if (!normal) continue
-    const anim = files.has(`${name}/anim.asm`) ? `${name}/anim.asm` : null
-    entries.push({ name, anim, normal, shiny: findUp(name, 'shiny.pal') ?? normal })
+  /** A random cached sprite from one of `sources`, if there is one. */
+  async anySprite(sources: readonly SourceId[]): Promise<StoredSprite | undefined> {
+    const prefixes = sources.map(source => `${SpriteCache.SPRITE}${source}:`)
+    const keys = (await this.store.keys()).filter(key => prefixes.some(p => key.startsWith(p)))
+    const key = keys[randomInt(keys.length)]
+    return key ? ((await this.store.get(key)) as StoredSprite | undefined) : undefined
   }
-  return entries
+
+  async dropLegacy(): Promise<void> {
+    for (const key of await this.store.keys()) {
+      if (SpriteCache.LEGACY(key)) await this.store.delete(key)
+    }
+  }
+
+  private spriteKey(entry: Entry): string {
+    return `${SpriteCache.SPRITE}${entry.source}:${entry.name}`
+  }
+}
+
+class Pokedex {
+  private readonly http: HttpClient
+  private readonly cache: SpriteCache
+
+  constructor(
+    private readonly ports: SourcePorts,
+    private readonly sources: readonly SpriteSource[]
+  ) {
+    this.http = new HttpClient(ports.fetch)
+    this.cache = new SpriteCache(ports.store)
+  }
+
+  /**
+   * One random sprite, ready to draw. When the network fails, a sprite
+   * cached by an earlier session stands in.
+   */
+  async summon(): Promise<Sprite> {
+    const isShiny = CONFIG.shinyOdds > 0 && randomInt(CONFIG.shinyOdds) === 0
+    try {
+      const entry = pickEntry(await this.collect())
+      if (!entry) throw new Error('no sprites to pick from')
+      const source = this.sourceOf(entry.source)!
+      return shapeSprite(source.animate(await this.load(source, entry, isShiny)))
+    } catch (error) {
+      const stored = await this.cache.anySprite(this.sources.map(source => source.id))
+      const source = stored && this.sourceOf(stored.entry.source)
+      if (!stored || !source) throw error
+      return shapeSprite(source.animate(stored.files))
+    }
+  }
+
+  /** Every enabled source's sprites, one per species and form. */
+  async collect(): Promise<Entry[]> {
+    const lists = await Promise.all(
+      this.sources.map(source => this.list(source).catch((): Entry[] => []))
+    )
+    return dedupe(lists.flat())
+  }
+
+  /** A source's list, fetched again once it is older than `listMaxAgeMs`. */
+  private async list(source: SpriteSource): Promise<Entry[]> {
+    const now = await this.ports.now()
+    const stored = await this.cache.list(source.id)
+    if (stored && now - stored.fetchedAt < CONFIG.listMaxAgeMs) return stored.entries
+
+    try {
+      const entries = await source.list(this.http)
+      await this.cache.saveList(source.id, { fetchedAt: now, entries })
+      await this.cache.dropLegacy()
+      return entries
+    } catch (error) {
+      if (stored) return stored.entries
+      throw error
+    }
+  }
+
+  /**
+   * Fetches one sprite's files. Normal colours are cached; a shiny is fetched
+   * each time, and falls back to normal colours when it cannot be.
+   */
+  private async load(source: SpriteSource, entry: Entry, isShiny: boolean): Promise<Files> {
+    const cached = isShiny ? undefined : await this.cache.sprite(entry)
+    if (cached) return cached
+
+    try {
+      const needs = source.needs(entry, isShiny)
+      const contents = await Promise.all(
+        needs.map(need =>
+          need.isBinary
+            ? this.http.base64(source.repo, need.path)
+            : this.http.text(github.raw(source.repo, need.path))
+        )
+      )
+      const files: Files = Object.fromEntries(needs.map((need, i) => [need.role, contents[i]!]))
+      if (!isShiny) await this.cache.saveSprite(entry, files)
+      return files
+    } catch (error) {
+      if (isShiny) return this.load(source, entry, false)
+      throw error
+    }
+  }
+
+  private sourceOf(id: SourceId): SpriteSource | undefined {
+    return this.sources.find(source => source.id === id)
+  }
+}
+
+/** Keeps the first entry of each species and form, so source order is priority. */
+function dedupe(entries: readonly Entry[]): Entry[] {
+  const seen = new Set<string>()
+  return entries.filter(entry => {
+    const key = `${entry.species}/${entry.form}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
 
 /**
  * Picks a species first, then one of its forms, so a species with many
  * forms (Unown, Magikarp) is no likelier than one with a single form.
  */
-function pickEntry(entries: IndexEntry[]): IndexEntry | undefined {
-  const species = new Map<string, IndexEntry[]>()
+function pickEntry(entries: readonly Entry[]): Entry | undefined {
+  const bySpecies = new Map<string, Entry[]>()
   for (const entry of entries) {
-    const key = entry.name.split('_')[0] ?? entry.name
-    species.set(key, [...(species.get(key) ?? []), entry])
+    bySpecies.set(entry.species, [...(bySpecies.get(entry.species) ?? []), entry])
   }
-  const forms = [...species.values()][randomInt(species.size)] ?? []
+  const forms = [...bySpecies.values()][randomInt(bySpecies.size)] ?? []
   return forms[randomInt(forms.length)]
-}
-
-async function fetchText(ports: SourcePorts, url: string): Promise<string> {
-  const response = await ports.fetch(url, { headers: USER_AGENT })
-  if (!response.ok) throw new Error(`${url} answered ${response.status}`)
-  return response.text
-}
-
-/**
- * Fetches a binary file through the GitHub contents API, which sends it as
- * base64 JSON: the host's fetch hands back text, which would mangle bytes.
- */
-async function fetchBase64(ports: SourcePorts, url: string): Promise<string> {
-  const response = await ports.fetch(url, { headers: GITHUB_API })
-  if (!response.ok) throw new Error(`${url} answered ${response.status}`)
-  const { content } = JSON.parse(response.text) as { content?: string }
-  if (!content) throw new Error(`${url} sent no content`)
-  return content.replace(/\s/g, '')
-}
-
-/** Stores a Pokémon and drops the oldest ones past the cache limit. */
-async function remember(ports: SourcePorts, key: string, record: PicRecord): Promise<void> {
-  await ports.store.set(key, record)
-  const keys = (await ports.store.keys()).filter(k => k.startsWith(PIC_PREFIX))
-  for (const old of keys.slice(0, Math.max(0, keys.length - CONFIG.cacheLimit))) {
-    await ports.store.delete(old)
-  }
-}
-
-async function dropLegacyKeys(ports: SourcePorts): Promise<void> {
-  for (const key of await ports.store.keys()) {
-    if (LEGACY_PREFIXES.some(prefix => key.startsWith(prefix))) await ports.store.delete(key)
-  }
-}
-
-function isPicRecord(value: unknown): value is PicRecord {
-  const record = value as Partial<PicRecord> | null | undefined
-  return typeof record?.png === 'string' && typeof record.normal === 'string' && typeof record.shiny === 'string'
 }
 
 function randomInt(below: number): number {
@@ -740,14 +1272,15 @@ class Player {
 
 // ── Hooks ───────────────────────────────────────────────────────────────────
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
+  const sources = enabledSources(options)
   let player: Player | undefined
 
   on('session.start', async ($, e, next) => {
     const result = await next(e)
     if (e.surface !== 'terminal') return result
 
-    const source: SourcePorts = {
+    const ports: SourcePorts = {
       now: () => $.clock.now(),
       fetch: (url, init) => $.http.fetch(url, init),
       store: {
@@ -763,7 +1296,8 @@ export const register: Register = on => {
     }
 
     // Fetch in the background so the session never waits on GitHub.
-    summon(source)
+    new Pokedex(ports, sources)
+      .summon()
       .then(sprite => {
         player?.stop()
         player = new Player(playback, sprite)

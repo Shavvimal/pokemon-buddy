@@ -2,6 +2,18 @@
 
 This project follows [Semantic Versioning](https://semver.org).
 
+## 0.3.0 - 2026-10-30
+
+- Three sources in one Pokédex: Pokémon Crystal (PokeAPI), Polished Crystal
+  and Pokémon Prism (third-party archive), with each species and form once:
+  about 480 sprites across about 380 species.
+- Each source is a per-user setting (`crystal`, `polishedCrystal`, `prism`),
+  all on by default.
+- Sources are strategies behind one `SpriteSource` interface; a `Pokedex`
+  composes them with an HTTP client and a cache.
+- The PNG decoder reads 8-bit RGBA as well as greyscale; the GIF decoder is
+  back, for the Crystal sprites.
+
 ## 0.2.0 - 2026-10-30
 
 - Sprites now come from Polished Crystal: about 290 species in Pokémon Crystal's

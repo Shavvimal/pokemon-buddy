@@ -2,13 +2,14 @@
 
 Pokémon Buddy is an unofficial fan project. It is not affiliated with,
 endorsed by, or sponsored by Nintendo, Creatures Inc., GAME FREAK inc.,
-The Pokémon Company, Anthropic, or the Polished Crystal project.
+The Pokémon Company, Anthropic, PokeAPI, the Polished Crystal project, or the
+Pokémon Prism team.
 
 ## What this repository contains
 
 Original code and documentation, under the MIT licence in
-[LICENSE](LICENSE). The test sprite in `tests/buddy.test.tsx` is a plain
-shaded square made for this repository.
+[LICENSE](LICENSE). The test sprites in `tests/buddy.test.tsx` are plain
+shaded squares made for this repository.
 
 One exception: `docs/header.png`, the README header, is a mockup of a
 terminal session that shows one frame of Polished Crystal's Sylveon sprite,
@@ -19,13 +20,22 @@ on request: open an issue.
 
 ## What this repository does not contain
 
-No other sprite, and no palette, frame script or other asset from Pokémon
-Crystal, Polished Crystal, or any other game or ROM hack. The mod fetches
-those at run time, on the user's machine, from the public repository named
-below, and keeps a small cache in the user's own Claude Code plugin store.
-Nothing is re-hosted.
+No other sprite, and no palette, frame script or other asset from any game or
+ROM hack. The mod fetches those at run time, on the user's machine, from the
+public repositories named below, and keeps a small cache in the user's own
+Claude Code plugin store. Nothing is re-hosted. Each source is a setting the
+user can turn off.
 
 ## Third-party sources
+
+### Pokémon Crystal sprites, through PokeAPI
+
+- Repository: <https://github.com/PokeAPI/sprites>
+- Used: `sprites/pokemon/versions/generation-ii/crystal/animated/*.gif` and
+  `shiny/*.gif`, fetched at run time. Species names come from the PokeAPI web
+  API (<https://pokeapi.co>).
+- Licence: PokeAPI distributes its repository under CC0 1.0 and states that
+  all image contents are copyright The Pokémon Company.
 
 ### Polished Crystal
 
@@ -36,9 +46,24 @@ Nothing is re-hosted.
   [CREDITS.md](https://github.com/Rangi42/polishedcrystal/blob/master/CREDITS.md),
   including the artists of the Pokémon sprites and animations added after
   Generation II.
-- Licence: the repository publishes no licence. Its assets are therefore not
-  copied here. If the Polished Crystal maintainers object to this use, open an
-  issue and the default source will change.
+- Licence: the repository publishes no licence.
+
+### Pokémon Prism, through a third-party archive
+
+- Archive: <https://github.com/bottlebrushes/pokemon-prism-assets>, an
+  unofficial collection of graphics extracted from Pokémon Prism.
+- Used: `manifest.json`, and `pokemon/*/front.png` and `shiny.png`, fetched at
+  run time.
+- Authors: Pokémon Prism is by Koolboyman and the RainbowDevs team
+  (<https://rainbowdevs.com/title/prism/>), with sprites and animations by
+  artists including SourApple.
+- Licence: neither Prism nor the archive publishes a licence, and the Prism
+  team did not publish the archive. The source is on by default. A user who
+  prefers not to use it can set the `prism` setting to off.
+
+If you made any of these sprites, or maintain one of these repositories, and
+want this mod to stop fetching from you, open an issue and the source will be
+removed.
 
 ### pret/pokecrystal
 

@@ -6,17 +6,24 @@ The Pokémon Company, Anthropic, or the Polished Crystal project.
 
 ## What this repository contains
 
-Only original code and documentation, under the MIT licence in
+Original code and documentation, under the MIT licence in
 [LICENSE](LICENSE). The test sprite in `tests/buddy.test.tsx` is a plain
 shaded square made for this repository.
 
+One exception: `docs/header.png`, the README header, is a mockup of a
+terminal session that shows one frame of Polished Crystal's Sylveon sprite,
+drawn through this mod, to illustrate what the mod does. That sprite is not
+covered by the MIT licence. It stays the work of its artists (see the Polished
+Crystal credits below) and of the Pokémon rights holders. It will be removed
+on request: open an issue.
+
 ## What this repository does not contain
 
-No sprite, palette, frame script or other asset from Pokémon Crystal,
-Polished Crystal, or any other game or ROM hack. The mod fetches those at run
-time, on the user's machine, from the public repository named below, and
-keeps a small cache in the user's own Claude Code plugin store. Nothing is
-re-hosted.
+No other sprite, and no palette, frame script or other asset from Pokémon
+Crystal, Polished Crystal, or any other game or ROM hack. The mod fetches
+those at run time, on the user's machine, from the public repository named
+below, and keeps a small cache in the user's own Claude Code plugin store.
+Nothing is re-hosted.
 
 ## Third-party sources
 

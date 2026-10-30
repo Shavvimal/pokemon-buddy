@@ -1,5 +1,9 @@
 # Pokémon Buddy
 
+<p align="center">
+  <img src="docs/header.png" alt="A Claude Code session in a terminal, with an animated Sylveon sprite at the right end of the row above the prompt" width="960">
+</p>
+
 A [Claude Code](https://claude.com/claude-code) mod that shows one random,
 animated Pokémon in the Game Boy Color style of Pokémon Crystal at the right
 end of the row above your prompt. Each new session gets a new Pokémon.
@@ -11,9 +15,10 @@ and palettes the game does. That gives about 290 species, from Bulbasaur to
 later relatives such as Sylveon, Annihilape and Dudunsparce, plus regional
 forms. About one session in 512 gets a shiny.
 
-**This repository holds no sprites.** The mod fetches each sprite from the
-public Polished Crystal repository when a session starts. See
-[Attribution](#attribution).
+**The mod ships no sprites.** It fetches each sprite from the public
+Polished Crystal repository when a session starts. The one exception in this
+repository is the header image above, a mockup that shows one sprite to
+illustrate the mod. See [Attribution](#attribution).
 
 ## Install
 
@@ -131,10 +136,16 @@ claude plugin marketplace remove pokemon-buddy
   Creatures Inc. and GAME FREAK inc. The original Pokémon Crystal artwork is
   © Nintendo, Creatures Inc. and GAME FREAK inc.
 
-Polished Crystal publishes no licence for its assets, so this repository does
-not copy, bundle or redistribute any of them. Each user's Claude Code fetches
+Polished Crystal publishes no licence for its assets, so the mod does not
+copy, bundle or redistribute any of them. Each user's Claude Code fetches
 them straight from the public Polished Crystal repository. The MIT licence of
 this repository covers only its own code.
+
+The header image, `docs/header.png`, is a mockup of a terminal session. It
+shows Polished Crystal's Sylveon sprite, drawn through this mod, to illustrate
+what the mod does. The sprite in it is not covered by the MIT licence. It
+stays the work of its artists and rights holders, and it will be removed on
+request.
 
 [NOTICE.md](NOTICE.md) has the full notice.
 

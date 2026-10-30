@@ -5,8 +5,8 @@ This project follows [Semantic Versioning](https://semver.org).
 ## 0.3.1 - 2026-10-30
 
 - Plugin icon and README header: Pokémon Crystal's Charizard.
-- CI: public hygiene scan, `claude plugin validate --profile directory
-  --strict` and the engine tests on every pull request, pinned to Claude Code
+- CI: public hygiene scan, `claude plugin validate --profile directory`
+  and the engine tests on every pull request, pinned to Claude Code
   2.1.314; a version-bump gate; tagged GitHub releases from this changelog.
 - `make check`, `tsconfig.json`, `CLAUDE.md`, CODEOWNERS, Dependabot for
   workflow actions, and issue forms.

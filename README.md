@@ -1,5 +1,9 @@
 # Pokémon Buddy
 
+[![ci](https://github.com/Shavvimal/pokemon-buddy/actions/workflows/ci.yml/badge.svg)](https://github.com/Shavvimal/pokemon-buddy/actions/workflows/ci.yml)
+[![release](https://img.shields.io/github/v/release/Shavvimal/pokemon-buddy)](https://github.com/Shavvimal/pokemon-buddy/releases)
+[![licence: MIT](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
+
 <p align="center">
   <img src="docs/header.png" alt="A Claude Code session in a terminal, with an animated Sylveon sprite at the right end of the row above the prompt" width="960">
 </p>
@@ -23,8 +27,8 @@ the same species and form, the earlier source in the table wins. You can turn
 each source off (see [Sources](#sources)).
 
 **The mod ships no sprites.** It fetches each one from its public repository
-when a session starts. The one exception in this repository is the header
-image above, a mockup that shows one sprite to illustrate the mod. See
+when a session starts. The two exceptions in this repository are the header
+image above and the plugin icon, which show one sprite to illustrate the mod. See
 [Attribution](#attribution).
 
 ## Install
@@ -47,7 +51,9 @@ claude plugin install pokemon-buddy@pokemon-buddy
 
 ## Requirements
 
-- Claude Code with mod (hooks module) support.
+- Claude Code with mod (hooks module) support. CI tests against the version
+  in `.github/workflows/ci.yml` (2.1.314 now). The mod API is early access and
+  can change between Claude Code releases.
 - A terminal that can draw pictures: [Ghostty](https://ghostty.org),
   [kitty](https://sw.kovidgoyal.net/kitty/), or iTerm2 3.5 or later. In other
   terminals, the row stays empty.
@@ -134,9 +140,23 @@ session uses at most 3.
 ## Development
 
 ```bash
-claude plugin validate .   # manifest and hooks module checks
-claude plugin test .       # engine tests in tests/
+make check   # hygiene scan, plugin validation, engine tests, type check
 ```
+
+`make check` runs:
+
+| Step | Command |
+| --- | --- |
+| Public hygiene | `node scripts/check-hygiene.mjs` |
+| Manifest and hooks module | `claude plugin validate . --profile directory` |
+| Engine tests | `claude plugin test .` |
+| Type check | `tsc -p tsconfig.json`, once Claude Code has written `.claude-plugin/types/` (run `claude --plugin-dir .` once) |
+
+CI runs the first three on every pull request, and `main` takes changes only
+through squash-merged pull requests with green checks. A change under `hooks/`
+or `.claude-plugin/` must raise the version in `.claude-plugin/plugin.json`
+and add a `CHANGELOG.md` section. The release workflow then tags it and
+publishes a GitHub release.
 
 To run your working copy, add the folder as a marketplace and install from it:
 
@@ -181,11 +201,11 @@ Code fetches them from the public repositories above. Using a source is the
 user's own choice, and each one can be turned off. The MIT licence of this
 repository covers only its own code.
 
-The header image, `docs/header.png`, is a mockup of a terminal session. It
-shows Polished Crystal's Sylveon sprite, drawn through this mod, to illustrate
-what the mod does. The sprite in it is not covered by the MIT licence. It
-stays the work of its artists and rights holders, and it will be removed on
-request.
+The header image, `docs/header.png`, and the plugin icon,
+`.claude-plugin/icon.png`, show Polished Crystal's Sylveon sprite, drawn
+through this mod, to illustrate what the mod does. The sprite is not covered
+by the MIT licence. It stays the work of its artists and rights holders, and
+both images will be removed on request.
 
 [NOTICE.md](NOTICE.md) has the full notice. If you made one of these sprites
 and want this mod to stop fetching it, open an issue.

@@ -1,0 +1,71 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The mod API is early access and can change between Claude Code releases,
+  # so CI pins the version the mod was last checked against. Bump it on purpose.
+  CLAUDE_CODE_VERSION: "2.1.314"
+
+jobs:
+  check:
+    name: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install Claude Code
+        run: npm install --global "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+      - name: Public hygiene
+        run: node scripts/check-hygiene.mjs
+      - name: Validate the plugin, marketplace and hooks module
+        run: claude plugin validate . --profile directory
+      - name: Engine tests
+        run: claude plugin test .
+
+  version-bump:
+    name: version-bump
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Require a version bump when a user-facing file changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          # The mod (hooks/) and its manifests ship to users. A change there must
+          # raise the version, so installs pick it up. Docs, tests and CI do not.
+          changed=$(git diff --name-only "$BASE_SHA"...HEAD -- 'hooks/**' '.claude-plugin/**')
+          if [ -z "$changed" ]; then
+            echo "No user-facing changes; a version bump is not required."
+            exit 0
+          fi
+          version() { python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])'; }
+          head_v=$(version < .claude-plugin/plugin.json)
+          base_v=$(git show "$BASE_SHA:.claude-plugin/plugin.json" | version)
+          echo "base=$base_v head=$head_v"
+          if ! [[ "$head_v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::version '$head_v' is not X.Y.Z semver."
+            exit 1
+          fi
+          # dpkg compares versions correctly (0.10.0 > 0.9.0, where a string compare
+          # is wrong), and 'lt' rejects an unchanged version and a downgrade.
+          if ! dpkg --compare-versions "$base_v" lt "$head_v"; then
+            echo "::error::.claude-plugin/plugin.json version must increase: base=$base_v head=$head_v."
+            exit 1
+          fi

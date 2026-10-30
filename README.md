@@ -5,7 +5,7 @@
 [![licence: MIT](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 
 <p align="center">
-  <img src="docs/header.png" alt="A Claude Code session in a terminal, with an animated Sylveon sprite at the right end of the row above the prompt" width="960">
+  <img src="docs/header.png" alt="A Claude Code session in a terminal, with an animated Charizard sprite at the right end of the row above the prompt" width="960">
 </p>
 
 A [Claude Code](https://claude.com/claude-code) mod that shows one random,
@@ -202,10 +202,11 @@ user's own choice, and each one can be turned off. The MIT licence of this
 repository covers only its own code.
 
 The header image, `docs/header.png`, and the plugin icon,
-`.claude-plugin/icon.png`, show Polished Crystal's Sylveon sprite, drawn
-through this mod, to illustrate what the mod does. The sprite is not covered
-by the MIT licence. It stays the work of its artists and rights holders, and
-both images will be removed on request.
+`.claude-plugin/icon.png`, show Pokémon Crystal's Charizard sprite (from
+PokeAPI/sprites), drawn through this mod, to illustrate what the mod does. The
+sprite is not covered by the MIT licence. It stays the property of Nintendo,
+Creatures Inc., GAME FREAK inc. and The Pokémon Company, and both images will
+be removed on request.
 
 [NOTICE.md](NOTICE.md) has the full notice. If you made one of these sprites
 and want this mod to stop fetching it, open an issue.

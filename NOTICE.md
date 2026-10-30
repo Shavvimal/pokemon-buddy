@@ -11,15 +11,15 @@ Original code and documentation, under the MIT licence in
 [LICENSE](LICENSE). The test sprites in `tests/buddy.test.tsx` are plain
 shaded squares made for this repository.
 
-Two exceptions show one frame of Polished Crystal's Sylveon sprite, drawn
-through this mod, to illustrate what the mod does:
+Two exceptions show one frame of Pokémon Crystal's Charizard sprite (from
+PokeAPI/sprites), drawn through this mod, to illustrate what the mod does:
 
 - `docs/header.png`, the README header: a mockup of a terminal session.
 - `.claude-plugin/icon.png`, the plugin icon.
 
-That sprite is not covered by the MIT licence. It stays the work of its
-artists (see the Polished Crystal credits below) and of the Pokémon rights
-holders. Both images will be removed on request: open an issue.
+That sprite is not covered by the MIT licence. It stays the property of
+Nintendo, Creatures Inc., GAME FREAK inc. and The Pokémon Company. Both images
+will be removed on request: open an issue.
 
 ## What this repository does not contain
 

@@ -1,0 +1,20 @@
+{
+  "name": "pokemon-buddy",
+  "version": "0.2.0",
+  "description": "One random animated Pokémon in the Game Boy Color style of Pokémon Crystal, above your prompt, new each session",
+  "author": {
+    "name": "Shavvimal",
+    "url": "https://github.com/Shavvimal"
+  },
+  "homepage": "https://github.com/Shavvimal/pokemon-buddy",
+  "repository": "https://github.com/Shavvimal/pokemon-buddy",
+  "license": "MIT",
+  "keywords": [
+    "pokemon",
+    "pokemon-crystal",
+    "pixel-art",
+    "terminal",
+    "fun",
+    "mod"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "name": "pokemon-buddy",
+  "owner": {
+    "name": "Shavvimal",
+    "url": "https://github.com/Shavvimal"
+  },
+  "description": "Pokémon Buddy, a Claude Code mod",
+  "plugins": [
+    {
+      "name": "pokemon-buddy",
+      "source": "./",
+      "description": "One random animated Pokémon in the Game Boy Color style of Pokémon Crystal, above your prompt, new each session"
+    }
+  ]
+}

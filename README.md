@@ -5,7 +5,7 @@
 [![licence: MIT](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 
 <p align="center">
-  <img src="docs/header-sky.gif" alt="A Claude Code session in a terminal. In the row above the prompt an animated Pikachu walks from left to right, turns around, walks back, looks up, sits down, falls asleep, wakes, strikes a pose and walks off again" width="960">
+  <img src="docs/header-sky.gif?v=2" alt="A Claude Code session in a terminal. In the row above the prompt an animated Pikachu walks from left to right, turns around, walks back, looks up, sits down, falls asleep, wakes, strikes a pose and walks off again" width="960">
 </p>
 
 A little desktop pet for your terminal. Pokémon Buddy gives every

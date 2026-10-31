@@ -751,8 +751,7 @@ export class Actor {
   private wakeUp(): void {
     this.timer?.cancel()
     this.cues = []
-    this.state = { kind: 'wake' }
-    if (!this.enqueueClip('Wake')) this.enqueueClip('Idle')
+    this.enterWake()
     const first = this.cues.shift()
     if (first) {
       this.cue = first
@@ -760,6 +759,14 @@ export class Actor {
     }
     this.draw()
     if (this.timer) this.loop()
+  }
+
+  /** Queues the Wake clip. The timer chain is left alone, so this is safe
+   * from inside a tick: a nap that ends on its own must not start a second
+   * chain, which `wakeUp()` would. */
+  private enterWake(): void {
+    this.state = { kind: 'wake' }
+    if (!this.enqueueClip('Wake')) this.enqueueClip('Idle')
   }
 
   /** A walk or idle, to turn to the prompt end and watch Claude work. */
@@ -810,7 +817,7 @@ export class Actor {
         else this.enterIdle(1)
         return
       case 'sleep':
-        if (this.t >= state.untilT) this.wakeUp()
+        if (this.t >= state.untilT) this.enterWake()
         else if (!this.enqueueClip('Sleep')) this.enqueueClip('Idle')
         return
       case 'wake':

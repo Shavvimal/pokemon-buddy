@@ -201,7 +201,7 @@ function crank(rig: Rig, random: () => number, bodyColumns = 40) {
     }
     now = until
   }
-  return { actor, advance, blits, count: () => invalidations }
+  return { actor, advance, blits, count: () => invalidations, pending: () => timers.filter(t => !t.cancelled).length }
 }
 
 /** Random numbers from a list, then the last one for ever. */
@@ -302,6 +302,22 @@ test('while Claude works, the buddy walks to the prompt end and watches, facing 
     left = actor.current.state !== 'watch'
   }
   expect(left).toBe(true)
+})
+
+test('a nap that ends on its own keeps one timer chain', async () => {
+  const rig = buildRig(files(), SHAPE)
+  const { actor, advance, pending } = crank(rig, seeded(3))
+  // Ten quiet minutes make naps likely; two hours give many natural wakes.
+  let wakes = 0
+  let last = actor.current.state
+  for (let i = 0; i < 2 * 60 * 60 * 4; i++) {
+    advance(250)
+    const state = actor.current.state
+    if (last === 'sleep' && state === 'wake') wakes++
+    last = state
+    expect(pending()).toBeLessThanOrEqual(1)
+  }
+  expect(wakes).toBeGreaterThan(2)
 })
 
 test('a press plays a pose at the next clean cut', async () => {

@@ -50,7 +50,7 @@ claude --plugin-dir /path/to/pokemon-buddy --debug
 
 In that session:
 
-- Your edits to `hooks/register.tsx` reload when a turn ends, or straight away
+- Your edits under `hooks/` reload when a turn ends, or straight away
   with `/reload-plugins`.
 - A hook that fails, or a module that does not load, shows one dim line that
   names `pokemon-buddy`. With `--debug`, the debug log has every line that

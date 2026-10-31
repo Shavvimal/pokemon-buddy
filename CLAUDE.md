@@ -5,7 +5,10 @@ published the moment it is pushed, and a force push does not take it back.
 
 ## What this is
 
-A Claude Code mod (a hooks module). All its logic is in `hooks/register.tsx`;
+A Claude Code mod (a hooks module). Its logic is in `hooks/register.tsx` (sources,
+Pokédex, cache, the Crystal player, the hooks), `hooks/sky.tsx` (the Sky buddy:
+sheets, rig, painting, actor) and `hooks/codecs.ts` (base64, inflate, zip, PNG,
+GIF);
 `.claude-plugin/plugin.json` is the manifest, `.claude-plugin/marketplace.json`
 makes the repository installable, and `tests/` holds the engine tests.
 
@@ -15,7 +18,7 @@ makes the repository installable, and `tests/` holds the engine tests.
   fetches sprites at run time from the sources credited in `README.md` and
   `NOTICE.md`.
 - Test data is drawn for this repository (the shaded squares in
-  `tests/buddy.test.tsx`). `docs/header.png` and `.claude-plugin/icon.png`
+  `tests/buddy.test.tsx` and the zip of them in `tests/sky-zip.ts`). `docs/header-sky.gif` and `.claude-plugin/icon.png`
   are the two documented exceptions (see `NOTICE.md`); add no more.
 - A new source gets a `SpriteSource` strategy, a `userConfig` switch in
   `plugin.json`, and an entry in both the README's Attribution and `NOTICE.md`.
@@ -29,6 +32,13 @@ makes the repository installable, and `tests/` holds the engine tests.
   and for the names in the untracked file
   `$XDG_CONFIG_HOME/pokemon-buddy/private-terms` (one per line) locally. Add a
   private name to that file, never to a tracked one.
+
+## Design record
+
+`docs/spritecollab-format.md` (the SpriteCollab data, verified),
+`docs/sky-buddy-design.md` (the actor's design) and `docs/spritecollab-plan.md`
+(decisions and delivery) are the record for the Sky style. Keep them true
+when the behaviour changes.
 
 ## Developing
 

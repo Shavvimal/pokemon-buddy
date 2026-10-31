@@ -2,24 +2,26 @@
 
 Pokémon Buddy is an unofficial fan project. It is not affiliated with,
 endorsed by, or sponsored by Nintendo, Creatures Inc., GAME FREAK inc.,
-The Pokémon Company, Anthropic, PokeAPI, the Polished Crystal project, or the
-Pokémon Prism team.
+The Pokémon Company, Spike Chunsoft, Anthropic, PMDCollab, PokeAPI, the
+Polished Crystal project, or the Pokémon Prism team.
 
 ## What this repository contains
 
 Original code and documentation, under the MIT licence in
-[LICENSE](LICENSE). The test sprites in `tests/buddy.test.tsx` are plain
-shaded squares made for this repository.
+[LICENSE](LICENSE). The test sprites in `tests/buddy.test.tsx` and
+`tests/sky-zip.ts` are plain shaded squares made for this repository.
 
-Two exceptions show one frame of Pokémon Crystal's Charizard sprite (from
-PokeAPI/sprites), drawn through this mod, to illustrate what the mod does:
+Two exceptions each show one sprite, to illustrate what the mod does:
 
-- `docs/header.png`, the README header: a mockup of a terminal session.
-- `.claude-plugin/icon.png`, the plugin icon.
+- `docs/header-sky.gif`, the README header: a mockup of a terminal session in
+  which SpriteCollab's Pikachu sprite (the Explorers of Sky original,
+  credited to CHUNSOFT in `sprite/0025/credits.txt`) walks the band.
+- `.claude-plugin/icon.png`, the plugin icon: one frame of Pokémon Crystal's
+  Charizard sprite (from PokeAPI/sprites).
 
-That sprite is not covered by the MIT licence. It stays the property of
-Nintendo, Creatures Inc., GAME FREAK inc. and The Pokémon Company. Both images
-will be removed on request: open an issue.
+Neither sprite is covered by the MIT licence. They stay the property of
+Spike Chunsoft, Nintendo, Creatures Inc., GAME FREAK inc. and The Pokémon
+Company. Both images will be removed on request: open an issue.
 
 ## What this repository does not contain
 
@@ -30,6 +32,24 @@ Claude Code plugin store. Nothing is re-hosted. Each source is a setting the
 user can turn off.
 
 ## Third-party sources
+
+### SpriteCollab (Pokémon Mystery Dungeon: Explorers of Sky style)
+
+- Repository: <https://github.com/PMDCollab/SpriteCollab>, with its GraphQL
+  server at <https://spriteserver.pmdcollab.org> (source:
+  <https://github.com/PMDCollab/spritecollab-srv>).
+- Used: the server's sprite list, and per sprite its zip of `AnimData.xml`,
+  `credits.txt` and the `*-Anim.png`, `*-Offsets.png` and `*-Shadow.png`
+  sheets, fetched at run time. The mod keeps the sheets of the actions it
+  plays and the credits, and logs the credited artists when it draws a buddy.
+- Authors: the PMDCollab community, named per sprite in `credits.txt` and
+  in the repository's `credit_names.txt`. Sprites credited to `CHUNSOFT` are
+  the originals from Explorers of Sky.
+- Licence: the repository is published under
+  [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/). This mod
+  is non-commercial and credits each sprite. The originals stay the property
+  of Spike Chunsoft, Nintendo, Creatures Inc., GAME FREAK inc. and The
+  Pokémon Company.
 
 ### Pokémon Crystal sprites, through PokeAPI
 
@@ -78,13 +98,22 @@ removed.
 
 - Source: <https://github.com/madler/zlib/blob/develop/contrib/puff/puff.c>,
   by Mark Adler, under the zlib licence.
-- Used: the structure of the decompressor in `hooks/register.tsx` follows
+- Used: the structure of the decompressor in `hooks/codecs.ts` follows
   `puff.c`. The TypeScript is original.
+
+### Shimeji-EE
+
+- Repository: <https://github.com/LavenderSnek/ShimejiEE-cross-platform>
+- Used: the shape of its behaviour file (weighted next behaviours and
+  conditions) informed the buddy's weighted choices. No code or asset is
+  copied.
 
 ## Trademarks
 
 Pokémon and Pokémon character names are trademarks of Nintendo,
 Creatures Inc. and GAME FREAK inc. Pokémon Crystal and its artwork are
-© 2000–2001 Nintendo, Creatures Inc. and GAME FREAK inc. Claude and Claude
-Code are trademarks of Anthropic, PBC. Ghostty, kitty and iTerm2 are named
-only to describe compatibility.
+© 2000–2001 Nintendo, Creatures Inc. and GAME FREAK inc. Pokémon Mystery
+Dungeon: Explorers of Sky and its artwork are © 2009 Spike Chunsoft,
+Nintendo, Creatures Inc. and GAME FREAK inc. Claude and Claude Code are
+trademarks of Anthropic, PBC. Ghostty, kitty and iTerm2 are named only to
+describe compatibility.

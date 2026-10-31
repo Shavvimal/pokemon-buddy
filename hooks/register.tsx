@@ -1,23 +1,23 @@
 /**
- * Pokémon Buddy: one random animated Pokémon per Claude Code session, drawn
- * in the Game Boy Color style of Pokémon Crystal at the right end of the band
- * above the prompt.
- *
- * The sprites come from three public repositories, gathered into one Pokédex
- * with each species and form once:
- * - Pokémon Crystal's own animated sprites, from PokeAPI/sprites;
- * - Polished Crystal (Rangi42/polishedcrystal), a Crystal ROM hack that adds
- *   later relatives and regional forms in Crystal's own format;
- * - Pokémon Prism, from a third-party archive of its extracted graphics
- *   (bottlebrushes/pokemon-prism-assets); off unless the user switches it on.
+ * Pokémon Buddy: one random animated Pokémon per Claude Code session, in the
+ * band above the prompt, in one of two styles the user picks:
+ * - Sky: a Pokémon Mystery Dungeon: Explorers of Sky style sprite from
+ *   PMDCollab/SpriteCollab that walks the band and acts with some character
+ *   (the engine is in sky.tsx);
+ * - Crystal: a Game Boy Color style sprite at the right end of the band,
+ *   from three public repositories gathered into one Pokédex with each
+ *   species and form once: Pokémon Crystal's own sprites (PokeAPI/sprites),
+ *   Polished Crystal (Rangi42/polishedcrystal) and Pokémon Prism (a
+ *   third-party archive, bottlebrushes/pokemon-prism-assets).
  * This mod ships no sprites: it fetches them when a session starts, caches a
  * few for offline sessions, and plays them the way the games do. README.md
  * and NOTICE.md credit the artists and rights holders.
  *
- * Sections, top to bottom: configuration, base64, inflate, PNG decoding,
- * GIF decoding, pic animation, sprite shaping, sprite sources, collection,
- * playback, and hooks. Pictures need a terminal with a graphics protocol
- * (Ghostty, kitty, or iTerm2 3.5+); anywhere else the band stays empty.
+ * Sections, top to bottom: configuration, pic animation, sprite shaping,
+ * sprite sources, collection, playback, and hooks. The codecs (base64,
+ * inflate, zip, PNG, GIF) are in codecs.ts. Pictures need a terminal with a
+ * graphics protocol (Ghostty, kitty, or iTerm2 3.5+); anywhere else the band
+ * stays empty.
  */
 import type {
   HttpInit,
@@ -27,10 +27,21 @@ import type {
   Register,
   Timer,
 } from 'claude-code'
+import {
+  decodeGif,
+  decodePng,
+  fromBase64,
+  readZip,
+  toBase64,
+  type Animation,
+  type Greyscale,
+  type Rgba,
+} from './codecs'
+import { Actor, buildRig, pickSheets, profileFor, type Rig, type SessionEvent } from './sky'
 
 // ── Configuration ───────────────────────────────────────────────────────────
-// Which sources are on is a per-user setting (`userConfig` in plugin.json);
-// the rest is set here.
+// The style, and which Crystal sources are on, are per-user settings
+// (`userConfig` in plugin.json); the rest is set here.
 
 const CONFIG = {
   /** Sprite height in terminal rows: 3 is small, 6 shows every pixel. */
@@ -45,553 +56,20 @@ const CONFIG = {
   stripFrameMs: 7 * (1000 / 60),
   /** One session in this many gets the shiny colours; 0 turns shinies off. */
   shinyOdds: 512,
-  /** Sprites kept in the store for offline sessions, 2 to 25 KB each. */
-  cacheLimit: 60,
+  /**
+   * Sprites kept in the store for offline sessions: Crystal-style ones are
+   * 2 to 25 KB each, Sky rigs 45 to 130 KB; the store holds 4 MiB in all.
+   */
+  cacheLimit: { crystal: 40, sky: 12 },
+  /** Shows the buddy's name as a button under it; pressing it gets a reaction. */
+  petButton: true,
+  /** How long `curl` may take to fetch one Sky sprite zip, in ms. */
+  downloadTimeoutMs: 25_000,
   /** How long each source's sprite list is kept before it is fetched again, in ms. */
   listMaxAgeMs: 7 * 24 * 60 * 60 * 1000,
   /** Polished Crystal folders left out of the draw. */
   exclude: ['egg'],
 } as const
-
-// ── Base64 ──────────────────────────────────────────────────────────────────
-// The hooks runtime has the native Uint8Array base64 methods; TypeScript's
-// standard lib declares them only from 6.0, so they are typed here.
-
-const fromBase64 = (base64: string): Uint8Array =>
-  (Uint8Array as unknown as { fromBase64(text: string): Uint8Array }).fromBase64(base64)
-
-const toBase64 = (bytes: Uint8Array): string =>
-  (bytes as unknown as { toBase64(): string }).toBase64()
-
-// ── Inflate ─────────────────────────────────────────────────────────────────
-// zlib (RFC 1950) and deflate (RFC 1951) decompression for PNG image data,
-// after the structure of zlib's puff.c. The hooks runtime has no
-// DecompressionStream, so the mod carries its own.
-
-type Huffman = { counts: Uint16Array; symbols: Uint16Array }
-
-const LENGTH_BASE = [
-  3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131,
-  163, 195, 227, 258,
-]
-const LENGTH_EXTRA = [
-  0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0,
-]
-const DISTANCE_BASE = [
-  1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049,
-  3073, 4097, 6145, 8193, 12289, 16385, 24577,
-]
-const DISTANCE_EXTRA = [
-  0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13,
-]
-const CODE_LENGTH_ORDER = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15]
-
-class BitReader {
-  private at = 0
-  private buffer = 0
-  private count = 0
-
-  constructor(private readonly data: Uint8Array) {}
-
-  /** Reads `width` bits, least significant first. */
-  bits(width: number): number {
-    while (this.count < width) {
-      this.buffer |= this.byte() << this.count
-      this.count += 8
-    }
-    const value = this.buffer & ((1 << width) - 1)
-    this.buffer >>>= width
-    this.count -= width
-    return value
-  }
-
-  /** Drops the bits left in the current byte. */
-  align(): void {
-    this.buffer = 0
-    this.count = 0
-  }
-
-  byte(): number {
-    if (this.at >= this.data.length) throw new Error('compressed data ends early')
-    return this.data[this.at++]!
-  }
-}
-
-function huffman(lengths: ArrayLike<number>): Huffman {
-  const counts = new Uint16Array(16)
-  for (let symbol = 0; symbol < lengths.length; symbol++) {
-    const length = lengths[symbol]!
-    counts[length] = counts[length]! + 1
-  }
-  counts[0] = 0
-
-  const offsets = new Uint16Array(16)
-  for (let length = 1; length < 15; length++) {
-    offsets[length + 1] = offsets[length]! + counts[length]!
-  }
-  const symbols = new Uint16Array(lengths.length)
-  for (let symbol = 0; symbol < lengths.length; symbol++) {
-    const length = lengths[symbol]!
-    if (length === 0) continue
-    symbols[offsets[length]!] = symbol
-    offsets[length] = offsets[length]! + 1
-  }
-  return { counts, symbols }
-}
-
-function decodeSymbol(reader: BitReader, table: Huffman): number {
-  let code = 0
-  let first = 0
-  let index = 0
-  for (let length = 1; length < 16; length++) {
-    code |= reader.bits(1)
-    const count = table.counts[length]!
-    if (code - count < first) return table.symbols[index + (code - first)]!
-    index += count
-    first = (first + count) << 1
-    code <<= 1
-  }
-  throw new Error('bad Huffman code')
-}
-
-const FIXED_TABLES = (() => {
-  const lengths = new Uint8Array(288)
-  lengths.fill(8, 0, 144).fill(9, 144, 256).fill(7, 256, 280).fill(8, 280, 288)
-  return { literals: huffman(lengths), distances: huffman(new Uint8Array(30).fill(5)) }
-})()
-
-function readDynamicTables(reader: BitReader) {
-  const literalCount = reader.bits(5) + 257
-  const distanceCount = reader.bits(5) + 1
-  const codeLengthCount = reader.bits(4) + 4
-
-  const codeLengths = new Uint8Array(19)
-  for (let i = 0; i < codeLengthCount; i++) codeLengths[CODE_LENGTH_ORDER[i]!] = reader.bits(3)
-  const codeLengthTable = huffman(codeLengths)
-
-  const lengths = new Uint8Array(literalCount + distanceCount)
-  for (let i = 0; i < lengths.length; ) {
-    const symbol = decodeSymbol(reader, codeLengthTable)
-    if (symbol < 16) {
-      lengths[i++] = symbol
-      continue
-    }
-    let value = 0
-    let repeat: number
-    if (symbol === 16) {
-      if (i === 0) throw new Error('length repeat with no previous length')
-      value = lengths[i - 1]!
-      repeat = 3 + reader.bits(2)
-    } else if (symbol === 17) {
-      repeat = 3 + reader.bits(3)
-    } else {
-      repeat = 11 + reader.bits(7)
-    }
-    if (i + repeat > lengths.length) throw new Error('too many code lengths')
-    lengths.fill(value, i, i + repeat)
-    i += repeat
-  }
-
-  return {
-    literals: huffman(lengths.subarray(0, literalCount)),
-    distances: huffman(lengths.subarray(literalCount)),
-  }
-}
-
-function inflateBlock(
-  reader: BitReader,
-  out: number[],
-  { literals, distances }: { literals: Huffman; distances: Huffman }
-): void {
-  for (;;) {
-    const symbol = decodeSymbol(reader, literals)
-    if (symbol < 256) {
-      out.push(symbol)
-      continue
-    }
-    if (symbol === 256) return
-
-    // A length's extra bits come before the distance code.
-    const lengthIndex = symbol - 257
-    if (lengthIndex >= 29) throw new Error('bad length code')
-    const length = LENGTH_BASE[lengthIndex]! + reader.bits(LENGTH_EXTRA[lengthIndex]!)
-    const distanceIndex = decodeSymbol(reader, distances)
-    if (distanceIndex >= 30) throw new Error('bad distance code')
-    const distance = DISTANCE_BASE[distanceIndex]! + reader.bits(DISTANCE_EXTRA[distanceIndex]!)
-    if (distance > out.length) throw new Error('distance reaches before the start')
-    for (let i = 0; i < length; i++) out.push(out[out.length - distance]!)
-  }
-}
-
-function copyStoredBlock(reader: BitReader, out: number[]): void {
-  reader.align()
-  const length = reader.byte() | (reader.byte() << 8)
-  const complement = reader.byte() | (reader.byte() << 8)
-  if ((length ^ 0xffff) !== complement) throw new Error('stored block length is corrupt')
-  for (let i = 0; i < length; i++) out.push(reader.byte())
-}
-
-/** Decompresses a zlib stream. The checksum is not verified. */
-function inflateZlib(data: Uint8Array): Uint8Array {
-  if (((data[0] ?? 0) & 0x0f) !== 8) throw new Error('not a zlib deflate stream')
-  const reader = new BitReader(data.subarray(2))
-  const out: number[] = []
-  for (let isLast = false; !isLast; ) {
-    isLast = reader.bits(1) === 1
-    const type = reader.bits(2)
-    if (type === 0) copyStoredBlock(reader, out)
-    else if (type === 1) inflateBlock(reader, out, FIXED_TABLES)
-    else if (type === 2) inflateBlock(reader, out, readDynamicTables(reader))
-    else throw new Error('bad deflate block type')
-  }
-  return Uint8Array.from(out)
-}
-
-// ── PNG decoding ────────────────────────────────────────────────────────────
-// Reads the two PNG kinds the sources use, both non-interlaced: greyscale
-// (colour type 0, 1 to 8 bits), where each pixel becomes a Game Boy shade
-// from 0 (black) to 3 (white), and 8-bit RGBA (colour type 6).
-
-type Greyscale = { kind: 'shades'; width: number; height: number; shades: Uint8Array }
-type Rgba = { kind: 'rgba'; width: number; height: number; rgba: Uint8Array }
-
-const PNG_SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10]
-
-function decodePng(bytes: Uint8Array): Greyscale | Rgba {
-  if (PNG_SIGNATURE.some((value, i) => bytes[i] !== value)) throw new Error('not a PNG')
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-
-  let width = 0
-  let height = 0
-  let depth = 0
-  let colourType = -1
-  const data: Uint8Array[] = []
-  for (let at = 8; at + 8 <= bytes.length; ) {
-    const length = view.getUint32(at)
-    const type = String.fromCharCode(...bytes.subarray(at + 4, at + 8))
-    const body = bytes.subarray(at + 8, at + 8 + length)
-    if (type === 'IHDR') {
-      width = view.getUint32(at + 8)
-      height = view.getUint32(at + 12)
-      depth = body[8]!
-      colourType = body[9]!
-      const isSupported =
-        body[12] === 0 && ((colourType === 0 && depth <= 8) || (colourType === 6 && depth === 8))
-      if (!isSupported) throw new Error('PNG is neither plain greyscale nor 8-bit RGBA')
-    } else if (type === 'IDAT') {
-      data.push(body)
-    } else if (type === 'IEND') {
-      break
-    }
-    at += length + 12
-  }
-  if (width === 0 || data.length === 0) throw new Error('PNG has no image data')
-
-  const raw = inflateZlib(concatBytes(data))
-  if (colourType === 6) {
-    return { kind: 'rgba', width, height, rgba: unfilter(raw, width * 4, height, 4) }
-  }
-
-  const rowBytes = Math.ceil((width * depth) / 8)
-  const rows = unfilter(raw, rowBytes, height, 1)
-  const maxSample = (1 << depth) - 1
-  const shades = new Uint8Array(width * height)
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const bit = x * depth
-      const byte = rows[y * rowBytes + (bit >> 3)]!
-      const sample = (byte >> (8 - depth - (bit & 7))) & maxSample
-      shades[y * width + x] = Math.round((sample * 3) / maxSample)
-    }
-  }
-  return { kind: 'shades', width, height, shades }
-}
-
-/**
- * Undoes PNG's per-row filters. `stride` is the bytes per pixel the filters
- * look back by: 1 for greyscale up to 8 bits, 4 for 8-bit RGBA.
- */
-function unfilter(raw: Uint8Array, rowBytes: number, height: number, stride: number): Uint8Array {
-  const rows = new Uint8Array(rowBytes * height)
-  for (let y = 0; y < height; y++) {
-    const filter = raw[y * (rowBytes + 1)]
-    const line = raw.subarray(y * (rowBytes + 1) + 1, (y + 1) * (rowBytes + 1))
-    const at = y * rowBytes
-    for (let x = 0; x < rowBytes; x++) {
-      const left = x >= stride ? rows[at + x - stride]! : 0
-      const up = y > 0 ? rows[at + x - rowBytes]! : 0
-      const upLeft = x >= stride && y > 0 ? rows[at + x - rowBytes - stride]! : 0
-      rows[at + x] = (line[x]! + predict(filter, left, up, upLeft)) & 0xff
-    }
-  }
-  return rows
-}
-
-function predict(filter: number | undefined, left: number, up: number, upLeft: number): number {
-  switch (filter) {
-    case 0:
-      return 0
-    case 1:
-      return left
-    case 2:
-      return up
-    case 3:
-      return (left + up) >> 1
-    case 4: {
-      const estimate = left + up - upLeft
-      const toLeft = Math.abs(estimate - left)
-      const toUp = Math.abs(estimate - up)
-      const toUpLeft = Math.abs(estimate - upLeft)
-      if (toLeft <= toUp && toLeft <= toUpLeft) return left
-      return toUp <= toUpLeft ? up : upLeft
-    }
-    default:
-      throw new Error(`unknown PNG filter ${filter}`)
-  }
-}
-
-function concatBytes(parts: Uint8Array[]): Uint8Array {
-  const joined = new Uint8Array(parts.reduce((total, part) => total + part.length, 0))
-  let at = 0
-  for (const part of parts) {
-    joined.set(part, at)
-    at += part.length
-  }
-  return joined
-}
-
-// ── GIF decoding ────────────────────────────────────────────────────────────
-// A GIF89a decoder covering what animated sprites use: global and local
-// colour tables, transparency, interlacing, and disposal methods 0 to 3.
-
-type GraphicControl = { delayMs: number; disposal: number; transparent: number }
-
-const DEFAULT_CONTROL: GraphicControl = { delayMs: 100, disposal: 0, transparent: -1 }
-/** Browsers treat a delay under 20 ms as 100 ms; so does this decoder. */
-const MIN_DELAY_MS = 20
-
-class ByteReader {
-  private offset = 0
-
-  constructor(private readonly data: Uint8Array) {}
-
-  u8(): number {
-    if (this.offset >= this.data.length) throw new Error('GIF ends early')
-    return this.data[this.offset++]!
-  }
-
-  u16(): number {
-    return this.u8() | (this.u8() << 8)
-  }
-
-  take(length: number): Uint8Array {
-    if (this.offset + length > this.data.length) throw new Error('GIF ends early')
-    const slice = this.data.subarray(this.offset, this.offset + length)
-    this.offset += length
-    return slice
-  }
-
-  /** Reads a run of length-prefixed sub-blocks into one array. */
-  subBlocks(): Uint8Array {
-    const parts: Uint8Array[] = []
-    let total = 0
-    for (let size = this.u8(); size > 0; size = this.u8()) {
-      parts.push(this.take(size))
-      total += size
-    }
-    const joined = new Uint8Array(total)
-    let at = 0
-    for (const part of parts) {
-      joined.set(part, at)
-      at += part.length
-    }
-    return joined
-  }
-}
-
-function decodeGif(bytes: Uint8Array): Animation {
-  const reader = new ByteReader(bytes)
-  const signature = String.fromCharCode(...reader.take(6))
-  if (!signature.startsWith('GIF')) throw new Error('not a GIF')
-
-  const width = reader.u16()
-  const height = reader.u16()
-  const screen = reader.u8()
-  reader.take(2) // background colour index and pixel aspect: unused
-  const globalTable = screen & 0x80 ? reader.take(3 * (2 << (screen & 7))) : undefined
-
-  const canvas = new Uint8Array(width * height * 4)
-  const frames: Frame[] = []
-  let control = DEFAULT_CONTROL
-
-  for (;;) {
-    const block = reader.u8()
-    if (block === 0x3b) break // trailer
-
-    if (block === 0x21) {
-      const label = reader.u8()
-      if (label === 0xf9) {
-        control = readGraphicControl(reader)
-      } else {
-        reader.subBlocks() // comments, application data: skipped
-      }
-      continue
-    }
-
-    if (block !== 0x2c) throw new Error(`unknown GIF block 0x${block.toString(16)}`)
-
-    const left = reader.u16()
-    const top = reader.u16()
-    const frameWidth = reader.u16()
-    const frameHeight = reader.u16()
-    const image = reader.u8()
-    const table = image & 0x80 ? reader.take(3 * (2 << (image & 7))) : globalTable
-    if (!table) throw new Error('GIF frame has no colour table')
-
-    const minCodeSize = reader.u8()
-    const indices = lzwDecode(reader.subBlocks(), minCodeSize, frameWidth * frameHeight)
-    const rowOrder = image & 0x40 ? interlacedRows(frameHeight) : undefined
-    const saved = control.disposal === 3 ? canvas.slice() : undefined
-
-    for (let y = 0; y < frameHeight; y++) {
-      const canvasY = top + (rowOrder ? rowOrder[y]! : y)
-      if (canvasY >= height) continue
-      for (let x = 0; x < frameWidth; x++) {
-        const index = indices[y * frameWidth + x]!
-        const canvasX = left + x
-        if (index === control.transparent || canvasX >= width) continue
-        const pixel = (canvasY * width + canvasX) * 4
-        canvas[pixel] = table[index * 3]!
-        canvas[pixel + 1] = table[index * 3 + 1]!
-        canvas[pixel + 2] = table[index * 3 + 2]!
-        canvas[pixel + 3] = 255
-      }
-    }
-
-    frames.push({ rgba: canvas.slice(), delayMs: control.delayMs })
-
-    if (control.disposal === 2) {
-      clearRect(canvas, width, left, top, frameWidth, frameHeight)
-    } else if (saved) {
-      canvas.set(saved)
-    }
-    control = DEFAULT_CONTROL
-  }
-
-  if (frames.length === 0) throw new Error('GIF has no frames')
-  return { width, height, frames }
-}
-
-function readGraphicControl(reader: ByteReader): GraphicControl {
-  reader.u8() // block size, always 4
-  const packed = reader.u8()
-  const delayCs = reader.u16()
-  const transparentIndex = reader.u8()
-  reader.u8() // block terminator
-  const delayMs = delayCs * 10
-  return {
-    delayMs: delayMs < MIN_DELAY_MS ? 100 : delayMs,
-    disposal: (packed >> 2) & 7,
-    transparent: packed & 1 ? transparentIndex : -1,
-  }
-}
-
-/** Variable-width LZW, as GIF packs it: least significant bit first. */
-function lzwDecode(data: Uint8Array, minCodeSize: number, pixelCount: number): Uint8Array {
-  const out = new Uint8Array(pixelCount)
-  const clearCode = 1 << minCodeSize
-  const endCode = clearCode + 1
-  const prefix = new Uint16Array(4096)
-  const suffix = new Uint8Array(4096)
-  const stack = new Uint8Array(4097)
-
-  let codeSize = minCodeSize + 1
-  let nextCode = endCode + 1
-  let previous = -1
-  let firstByte = 0
-  let buffer = 0
-  let bits = 0
-  let written = 0
-  let at = 0
-
-  while (written < pixelCount) {
-    while (bits < codeSize && at < data.length) {
-      buffer |= data[at++]! << bits
-      bits += 8
-    }
-    if (bits < codeSize) break
-
-    const code = buffer & ((1 << codeSize) - 1)
-    buffer >>>= codeSize
-    bits -= codeSize
-
-    if (code === clearCode) {
-      codeSize = minCodeSize + 1
-      nextCode = endCode + 1
-      previous = -1
-      continue
-    }
-    if (code === endCode) break
-
-    if (previous === -1) {
-      out[written++] = code
-      previous = code
-      firstByte = code
-      continue
-    }
-
-    // Unwind the code's string onto the stack, last byte first. A code not
-    // yet in the table is the previous string plus its own first byte.
-    let depth = 0
-    let current = code
-    if (code >= nextCode) {
-      stack[depth++] = firstByte
-      current = previous
-    }
-    while (current >= clearCode) {
-      stack[depth++] = suffix[current]!
-      current = prefix[current]!
-    }
-    firstByte = current
-    stack[depth++] = current
-    while (depth > 0 && written < pixelCount) out[written++] = stack[--depth]!
-
-    if (nextCode < 4096) {
-      prefix[nextCode] = previous
-      suffix[nextCode] = firstByte
-      nextCode++
-      if (nextCode === 1 << codeSize && codeSize < 12) codeSize++
-    }
-    previous = code
-  }
-
-  return out
-}
-
-/** Maps each stored row to its place on screen for an interlaced frame. */
-function interlacedRows(height: number): number[] {
-  const order: number[] = []
-  for (const [start, step] of [[0, 8], [4, 8], [2, 4], [1, 2]] as const) {
-    for (let row = start; row < height; row += step) order.push(row)
-  }
-  return order
-}
-
-function clearRect(
-  canvas: Uint8Array,
-  width: number,
-  left: number,
-  top: number,
-  rectWidth: number,
-  rectHeight: number
-): void {
-  const height = canvas.length / 4 / width
-  for (let y = top; y < Math.min(top + rectHeight, height); y++) {
-    const start = (y * width + left) * 4
-    const end = (y * width + Math.min(left + rectWidth, width)) * 4
-    canvas.fill(0, start, end)
-  }
-}
 
 // ── Pic animation ───────────────────────────────────────────────────────────
 // Plays a Crystal "pic": a vertical strip of square frames, frame 0 the
@@ -600,8 +78,6 @@ function clearRect(
 // become white, the palette's light and dark colours, and black; white that
 // touches the edge becomes transparent, as the battle background shows it.
 
-type Frame = { rgba: Uint8Array; delayMs: number }
-type Animation = { width: number; height: number; frames: Frame[] }
 type Rgb = readonly [number, number, number]
 type Step = { frame: number; ticks: number }
 
@@ -799,7 +275,7 @@ function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
 // Pokédex below composes them. None of their files is stored in this mod's
 // repository: each is fetched at run time.
 
-type SourceId = 'crystal' | 'polished' | 'prism'
+type SourceId = 'crystal' | 'polished' | 'prism' | 'sky'
 type Repo = { owner: string; name: string; ref: string; dir: string }
 
 /** One sprite in one source, with its species and form for de-duplication. */
@@ -819,6 +295,7 @@ type Files = Record<string, string>
 /** What a source may use to list its sprites. */
 interface Fetcher {
   json<T>(url: string): Promise<T>
+  post<T>(url: string, body: string): Promise<T>
 }
 
 interface SpriteSource {
@@ -828,8 +305,17 @@ interface SpriteSource {
   list(fetcher: Fetcher): Promise<Entry[]>
   /** The files one sprite needs, with its normal or shiny colours. */
   needs(entry: Entry, isShiny: boolean): FileNeed[]
-  /** Turns those files into frames. */
-  animate(files: Files): Animation
+  /**
+   * A zip holding every file the sprite needs, tried before `needs`, and
+   * text files fetched beside it when it lacks them (a miss is not an error).
+   */
+  zip?(entry: Entry, isShiny: boolean): {
+    url: string
+    unpack: (zip: Uint8Array) => Files
+    extras?: FileNeed[]
+  }
+  /** Turns those files into frames: one looping animation, or a rig of clips. */
+  animate(files: Files): Animation | Rig
 }
 
 const github = {
@@ -989,19 +475,98 @@ const prism: SpriteSource = {
   },
 }
 
-/** Every source, in priority order: the first to have a species and form wins. */
-const SOURCES: readonly SpriteSource[] = [crystal, polished, prism]
+const SKY_REPO: Repo = { owner: 'PMDCollab', name: 'SpriteCollab', ref: 'master', dir: 'sprite' }
+const SKY_GRAPHQL = 'https://spriteserver.pmdcollab.org/graphql'
+const SKY_ZIP = (path: string) => `https://spriteserver.pmdcollab.org/assets/${path}/sprites.zip`
+/** Listing query: every species, every form, its sprite phase. */
+const SKY_LIST_QUERY = '{ monster { id name forms { path isShiny isFemale sprites { phase } } } }'
+/** The sheets fetched one by one when the zip cannot be: the core actions. */
+const SKY_CORE = ['Idle', 'Walk', 'Sleep', 'Rotate']
 
-/** The `userConfig` switch in plugin.json for each source. */
-const SOURCE_OPTIONS: Record<SourceId, string> = {
+type SkyMonster = {
+  id: number
+  name: string
+  forms: { path: string; isShiny: boolean; isFemale: boolean; sprites: { phase: string | null } }[]
+}
+
+/**
+ * PMDCollab/SpriteCollab: Explorers of Sky style sprites with walk cycles in
+ * eight directions and a set of actions, listed through the project's
+ * GraphQL server and fetched as one zip per sprite.
+ */
+const sky: SpriteSource = {
+  id: 'sky',
+  repo: SKY_REPO,
+  async list(fetcher) {
+    const { data } = await fetcher.post<{ data?: { monster?: SkyMonster[] } }>(
+      SKY_GRAPHQL,
+      JSON.stringify({ query: SKY_LIST_QUERY })
+    )
+    const monsters = data?.monster ?? []
+    if (monsters.length === 0) throw new Error('SpriteCollab listed no sprites')
+    return monsters.flatMap(monster => {
+      const dex = String(monster.id).padStart(4, '0')
+      const isDrawn = (form: SkyMonster['forms'][number]) =>
+        form.sprites.phase === 'EXISTS' || form.sprites.phase === 'FULL'
+      const shinies = new Set(monster.forms.filter(f => f.isShiny && isDrawn(f)).map(f => f.path))
+      return monster.forms
+        .filter(form => !form.isShiny && !form.isFemale && isDrawn(form))
+        .map(form => {
+          const path = form.path ? `${dex}/${form.path}` : dex
+          const shinyPath = `${form.path || '0000'}/0001`
+          const entry: Entry = {
+            source: 'sky',
+            name: path,
+            species: canonical(monster.name),
+            form: canonical(form.path),
+            paths: { shiny: shinies.has(shinyPath) ? `${dex}/${shinyPath}` : path, species: monster.name },
+          }
+          return entry
+        })
+    })
+  },
+  zip(entry, isShiny) {
+    const path = isShiny ? entry.paths.shiny! : entry.name
+    return {
+      url: SKY_ZIP(path),
+      unpack: bytes => pickSheets(readZip(bytes)),
+      // Not every zip carries the credits; the repository always does.
+      extras: [{ role: 'credits', path: `${path}/credits.txt`, isBinary: false }],
+    }
+  },
+  needs(entry, isShiny) {
+    const path = isShiny ? entry.paths.shiny! : entry.name
+    return [
+      { role: 'xml', path: `${path}/AnimData.xml`, isBinary: false },
+      ...SKY_CORE.flatMap(action =>
+        ['Anim', 'Offsets', 'Shadow'].map(kind => ({
+          role: `${action}-${kind}`,
+          path: `${path}/${action}-${kind}.png`,
+          isBinary: true,
+        }))
+      ),
+    ]
+  },
+  animate: files => buildRig(files, CONFIG),
+}
+
+/** Every Crystal-style source, in priority order: the first to have a species and form wins. */
+const CRYSTAL_SOURCES: readonly SpriteSource[] = [crystal, polished, prism]
+
+/** The `userConfig` switch in plugin.json for each Crystal-style source. */
+const SOURCE_OPTIONS: Partial<Record<SourceId, string>> = {
   crystal: 'crystal',
   polished: 'polishedCrystal',
   prism: 'prism',
 }
 
-/** The sources this user has on; a switch left unset counts as on. */
+/**
+ * The sources this user's style draws from: the Sky source alone, or the
+ * Crystal-style sources left on (a switch left unset counts as on).
+ */
 function enabledSources(options: PluginOptions): SpriteSource[] {
-  return SOURCES.filter(source => options[SOURCE_OPTIONS[source.id]] !== false)
+  if (options.style !== 'crystal') return [sky]
+  return CRYSTAL_SOURCES.filter(source => options[SOURCE_OPTIONS[source.id]!] !== false)
 }
 
 // ── Collection ──────────────────────────────────────────────────────────────
@@ -1013,6 +578,8 @@ function enabledSources(options: PluginOptions): SpriteSource[] {
 type SourcePorts = {
   now: () => Promise<number>
   fetch: (url: string, init: HttpInit) => Promise<HttpResponse>
+  /** Fetches a binary file through a host command; resolves its bytes. */
+  download: (url: string) => Promise<Uint8Array>
   store: {
     get: (key: string) => Promise<unknown>
     set: (key: string, value: unknown) => Promise<void>
@@ -1040,6 +607,13 @@ class HttpClient implements Fetcher {
 
   async json<T>(url: string): Promise<T> {
     return JSON.parse(await this.text(url)) as T
+  }
+
+  async post<T>(url: string, body: string): Promise<T> {
+    const headers = { ...HttpClient.USER_AGENT, 'Content-Type': 'application/json' }
+    const response = await this.fetch(url, { method: 'POST', headers, body })
+    if (!response.ok) throw new Error(`${url} answered ${response.status}`)
+    return JSON.parse(response.text) as T
   }
 
   /**
@@ -1078,11 +652,15 @@ class SpriteCache {
     return stored?.files
   }
 
-  /** Stores a sprite and drops the oldest ones past the cache limit. */
+  /** Stores a sprite and drops the oldest ones of its kind past the cache limit. */
   async saveSprite(entry: Entry, files: Files): Promise<void> {
     await this.store.set(this.spriteKey(entry), { entry, files } satisfies StoredSprite)
-    const keys = (await this.store.keys()).filter(key => key.startsWith(SpriteCache.SPRITE))
-    for (const old of keys.slice(0, Math.max(0, keys.length - CONFIG.cacheLimit))) {
+    const isSky = entry.source === 'sky'
+    const keys = (await this.store.keys()).filter(
+      key => key.startsWith(SpriteCache.SPRITE) && key.startsWith(`${SpriteCache.SPRITE}sky:`) === isSky
+    )
+    const limit = isSky ? CONFIG.cacheLimit.sky : CONFIG.cacheLimit.crystal
+    for (const old of keys.slice(0, Math.max(0, keys.length - limit))) {
       await this.store.delete(old)
     }
   }
@@ -1122,18 +700,18 @@ class Pokedex {
    * One random sprite, ready to draw. When the network fails, a sprite
    * cached by an earlier session stands in.
    */
-  async summon(): Promise<Sprite> {
+  async summon(): Promise<Summoned> {
     const isShiny = CONFIG.shinyOdds > 0 && randomInt(CONFIG.shinyOdds) === 0
     try {
       const entry = pickEntry(await this.collect())
       if (!entry) throw new Error('no sprites to pick from')
       const source = this.sourceOf(entry.source)!
-      return shapeSprite(source.animate(await this.load(source, entry, isShiny)))
+      return summoned(entry, source.animate(await this.load(source, entry, isShiny)), isShiny)
     } catch (error) {
       const stored = await this.cache.anySprite(this.sources.map(source => source.id))
       const source = stored && this.sourceOf(stored.entry.source)
       if (!stored || !source) throw error
-      return shapeSprite(source.animate(stored.files))
+      return summoned(stored.entry, source.animate(stored.files), false)
     }
   }
 
@@ -1171,21 +749,44 @@ class Pokedex {
     if (cached) return cached
 
     try {
-      const needs = source.needs(entry, isShiny)
-      const contents = await Promise.all(
-        needs.map(need =>
-          need.isBinary
-            ? this.http.base64(source.repo, need.path)
-            : this.http.text(github.raw(source.repo, need.path))
-        )
-      )
-      const files: Files = Object.fromEntries(needs.map((need, i) => [need.role, contents[i]!]))
+      const files = (await this.loadZip(source, entry, isShiny)) ?? (await this.loadFiles(source, entry, isShiny))
       if (!isShiny) await this.cache.saveSprite(entry, files)
       return files
     } catch (error) {
       if (isShiny) return this.load(source, entry, false)
       throw error
     }
+  }
+
+  /** The sprite's zip through the host's `curl`, or undefined when that path fails. */
+  private async loadZip(source: SpriteSource, entry: Entry, isShiny: boolean): Promise<Files | undefined> {
+    const zip = source.zip?.(entry, isShiny)
+    if (!zip) return undefined
+    let files: Files
+    try {
+      files = zip.unpack(await this.ports.download(zip.url))
+    } catch {
+      return undefined
+    }
+    for (const extra of zip.extras ?? []) {
+      if (files[extra.role] !== undefined) continue
+      const text = await this.http.text(github.raw(source.repo, extra.path)).catch(() => undefined)
+      if (text !== undefined) files[extra.role] = text
+    }
+    return files
+  }
+
+  /** The sprite's files one by one: binaries through the GitHub contents API. */
+  private async loadFiles(source: SpriteSource, entry: Entry, isShiny: boolean): Promise<Files> {
+    const needs = source.needs(entry, isShiny)
+    const contents = await Promise.all(
+      needs.map(need =>
+        need.isBinary
+          ? this.http.base64(source.repo, need.path)
+          : this.http.text(github.raw(source.repo, need.path))
+      )
+    )
+    return Object.fromEntries(needs.map((need, i) => [need.role, contents[i]!]))
   }
 
   private sourceOf(id: SourceId): SpriteSource | undefined {
@@ -1221,6 +822,21 @@ function randomInt(below: number): number {
   return below > 0 ? crypto.getRandomValues(new Uint32Array(1))[0]! % below : 0
 }
 
+/** A uniform random number in [0, 1), from the same generator. */
+function randomUnit(): number {
+  return crypto.getRandomValues(new Uint32Array(1))[0]! / 4294967296
+}
+
+/** What `summon` hands the hooks: a looping sprite, or a rig for the actor. */
+type Summoned =
+  | { kind: 'loop'; entry: Entry; sprite: Sprite; isShiny: boolean }
+  | { kind: 'rig'; entry: Entry; rig: Rig; isShiny: boolean }
+
+function summoned(entry: Entry, animated: Animation | Rig, isShiny: boolean): Summoned {
+  if ('kind' in animated && animated.kind === 'rig') return { kind: 'rig', entry, rig: animated, isShiny }
+  return { kind: 'loop', entry, sprite: shapeSprite(animated as Animation), isShiny }
+}
+
 // ── Playback ────────────────────────────────────────────────────────────────
 // Steps through the frames, each after its own delay, and swaps the mounted
 // Image in place. While the band is not drawn, the player keeps time and
@@ -1232,6 +848,8 @@ type PlayerPorts = {
 }
 
 const IMAGE_KEY = 'sprite'
+/** The one-glyph button under a Sky buddy; a press gets a reaction. */
+const PET_GLYPH = '\u2726'
 
 class Player {
   private index = 0
@@ -1272,9 +890,35 @@ class Player {
 
 // ── Hooks ───────────────────────────────────────────────────────────────────
 
+/** The line the buddy is logged with: its species, style and artists. */
+function describe(summon: Summoned): string {
+  const species = summon.entry.paths.species ?? summon.entry.species
+  const style = summon.kind === 'rig' ? 'Sky' : 'Crystal'
+  const shiny = summon.isShiny ? ', shiny' : ''
+  const credits = summon.kind === 'rig' ? skyArtists(summon.rig.credits) : ''
+  return `${species} (${style}${shiny})${credits ? `, sprites by ${credits}` : ''}`
+}
+
+/** The current artists in a SpriteCollab credits.txt: `date<TAB>author<TAB>CUR|OLD<TAB>...`. */
+function skyArtists(credits: string | undefined): string {
+  if (!credits) return ''
+  const names = credits
+    .split('\n')
+    .map(line => line.split('\t'))
+    .filter(parts => parts[2] === 'CUR' && parts[1])
+    .map(parts => parts[1]!)
+    // Some entries are chat-service user ids, not names; credit_names.txt
+    // in the repository maps them, and the log line does without.
+    .filter(name => !/^<@/.test(name))
+  return [...new Set(names)].join(', ')
+}
+
 export const register: Register = (on, options) => {
   const sources = enabledSources(options)
   let player: Player | undefined
+  let actor: Actor | undefined
+
+  const notify = (event: SessionEvent) => actor?.notify(event)
 
   on('session.start', async ($, e, next) => {
     const result = await next(e)
@@ -1283,6 +927,24 @@ export const register: Register = (on, options) => {
     const ports: SourcePorts = {
       now: () => $.clock.now(),
       fetch: (url, init) => $.http.fetch(url, init),
+      download: async url => {
+        // The host's fetch hands back text, which would mangle a zip: curl
+        // writes it to a file of its own, which is read as bytes and removed.
+        const made = await $.process.run(['mktemp'])
+        const path = made.stdout.trim()
+        if (made.exitCode !== 0 || !path) throw new Error('mktemp failed')
+        try {
+          const got = await $.process.run(
+            ['curl', '-sfL', '--max-time', String(Math.floor(CONFIG.downloadTimeoutMs / 1000)), '-o', path, url],
+            { timeoutMs: CONFIG.downloadTimeoutMs + 5000 }
+          )
+          if (got.exitCode !== 0) throw new Error(`curl exited ${got.exitCode}`)
+          const { base64 } = (await $.fs.read(path, { as: 'bytes' })) as { base64: string }
+          return fromBase64(base64)
+        } finally {
+          await $.process.run(['rm', '-f', path]).catch(() => undefined)
+        }
+      },
       store: {
         get: key => $.store.get(key),
         set: (key, value) => $.store.set(key, value),
@@ -1295,38 +957,89 @@ export const register: Register = (on, options) => {
       blit: (site, image) => void $.ui.blit({ requestId: site, key: IMAGE_KEY, source: image }),
     }
 
-    // Fetch in the background so the session never waits on GitHub.
+    // Fetch in the background so the session never waits on the network.
     new Pokedex(ports, sources)
       .summon()
-      .then(sprite => {
+      .then(summon => {
         player?.stop()
-        player = new Player(playback, sprite)
-        player.start()
+        actor?.stop()
+        player = undefined
+        actor = undefined
+        if (summon.kind === 'loop') {
+          player = new Player(playback, summon.sprite)
+          player.start()
+        } else {
+          const seed = Number(summon.entry.name.slice(0, 4)) || 1
+          actor = new Actor(
+            { ...playback, invalidate: () => $.ui.invalidate('ui.render'), random: randomUnit },
+            summon.rig,
+            profileFor(seed, summon.rig)
+          )
+          actor.start()
+        }
+        // Who the buddy is and who drew it, in the debug log only.
+        $.ui.log(describe(summon), { to: 'debug' })
         $.ui.invalidate('ui.render')
       })
-      .catch((error: unknown) => $.ui.log(`pokemon-buddy: no sprite (${String(error)})`))
+      .catch((error: unknown) => $.ui.log(`no sprite (${String(error)})`))
     return result
   })
 
   on('session.end', async ($, e, next) => {
     player?.stop()
+    actor?.stop()
     return next(e)
   })
 
-  on('ui.render', { component: 'AbovePrompt' }, ($, e, next) => {
-    if (e.surface !== 'terminal' || e.props.hasSurvey || !player) return next(e)
+  // What the buddy notices: a prompt, a turn's start and end. Observers only.
+  on('prompt.submit', ($, e, next) => {
+    notify({ kind: 'prompt' })
+    return next(e)
+  }).catch(($, e, next) => next(e))
+  on('turn.start', ($, e, next) => {
+    if (e.agentId === undefined) notify({ kind: 'turn-start' })
+    return next(e)
+  }).catch(($, e, next) => next(e))
+  on('turn.complete', ($, e, next) => {
+    if (e.agentId === undefined) notify({ kind: 'turn-end', isOk: e.reason === 'answer' })
+    return next(e)
+  }).catch(($, e, next) => next(e))
 
-    player.site = e.requestId
-    const { Box, Image } = $.ui.resolve(e)
+  on('ui.render', { component: 'AbovePrompt' }, ($, e, next) => {
+    if (e.surface !== 'terminal' || e.props.hasSurvey) return next(e)
+    const { Box, Button, Image } = $.ui.resolve(e)
+
+    if (player) {
+      player.site = e.requestId
+      return (
+        <Box width="100%" justifyContent="flex-end">
+          <Image
+            key={IMAGE_KEY}
+            source={player.source}
+            columns={CONFIG.rows * CONFIG.cellAspect}
+            rows={CONFIG.rows}
+            alt=" "
+          />
+        </Box>
+      )
+    }
+    if (!actor) return next(e)
+
+    actor.setWorking(e.props.isWorking)
+    actor.drawn(e.requestId, e.props.bodyColumns)
+    // The sprite stays in the flow, behind a spacer, so the band is exactly
+    // as tall as the picture; the button is the element placed over it.
     return (
-      <Box width="100%" justifyContent="flex-end">
-        <Image
-          key={IMAGE_KEY}
-          source={player.source}
-          columns={CONFIG.rows * CONFIG.cellAspect}
-          rows={CONFIG.rows}
-          alt=" "
-        />
+      <Box width="100%" flexDirection="row">
+        <Box width={actor.column} />
+        <Image key={IMAGE_KEY} source={actor.source} columns={actor.columns} rows={CONFIG.rows} alt=" " />
+        {CONFIG.petButton ? (
+          <Box position="absolute" left={0} bottom={0}>
+            <Button key="pet" plain dimColor onPress={() => notify({ kind: 'poke' })}>
+              {PET_GLYPH}
+            </Button>
+          </Box>
+        ) : null}
       </Box>
     )
   })

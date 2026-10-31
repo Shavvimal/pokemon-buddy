@@ -24,6 +24,9 @@ Thanks for helping. Bug reports, fixes and small features are welcome.
   through constructor arguments or small functions, so it can be tested on its
   own.
 
+[DEVELOPING.md](DEVELOPING.md) has the steps: set up, try a change in one
+session, ship it, and update your install.
+
 ## Before you open a pull request
 
 ```bash

@@ -30,6 +30,12 @@ makes the repository installable, and `tests/` holds the engine tests.
   `$XDG_CONFIG_HOME/pokemon-buddy/private-terms` (one per line) locally. Add a
   private name to that file, never to a tracked one.
 
+## Developing
+
+`DEVELOPING.md` has the workflow: one-session testing with `--plugin-dir`
+while the marketplace copy is disabled, the pull request and release flow, and
+updating an install. Keep it accurate when a step changes.
+
 ## Gate
 
 `make check` runs the hygiene scan, `claude plugin validate --profile directory`, the engine tests, and `tsc` when Claude Code has written the types

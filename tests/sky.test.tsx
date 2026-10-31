@@ -279,6 +279,31 @@ test('a quiet session sends the buddy to sleep, and a prompt wakes it with the W
   expect(actor.current.clip).toBe('Wake')
 })
 
+test('while Claude works, the buddy walks to the prompt end and watches, facing down', async () => {
+  const rig = buildRig(files(), SHAPE)
+  const { actor, advance } = crank(rig, seeded(7), 80)
+  actor.notify({ kind: 'turn-start' })
+  let watching = 0
+  for (let i = 0; i < 12000; i++) {
+    advance(50)
+    if (actor.current.state === 'watch') {
+      watching++
+      expect(actor.current.facing).toBe('down')
+      expect(actor.column).toBe(80 - 7)
+    }
+  }
+  // Ten minutes of work on an 80-column band: the buddy spends a real share
+  // of it watching. 0.4.0 turned back at the edge and never watched here.
+  expect(watching).toBeGreaterThan(1200)
+  actor.notify({ kind: 'turn-end', isOk: true })
+  let left = false
+  for (let i = 0; i < 400 && !left; i++) {
+    advance(50)
+    left = actor.current.state !== 'watch'
+  }
+  expect(left).toBe(true)
+})
+
 test('a press plays a pose at the next clean cut', async () => {
   const rig = buildRig(files(), SHAPE)
   const { actor, advance } = crank(rig, () => 0.3)

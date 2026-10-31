@@ -785,6 +785,9 @@ export class Actor {
         return
       case 'walk':
         if (this.pending) this.doPending()
+        // A walk that reaches the prompt end while Claude works stops there
+        // and watches; without this it always turned back first.
+        else if (this.atRightEdge && this.isWorking) this.enterTurn('down', () => this.enterWatch())
         else if (this.atLeftEdge || this.atRightEdge) {
           const to: Facing = this.atLeftEdge ? 'right' : 'left'
           this.enterTurn(to, () => this.enterWalk(to === 'right' ? 1 : -1))

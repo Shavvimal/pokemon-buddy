@@ -848,6 +848,8 @@ type PlayerPorts = {
 }
 
 const IMAGE_KEY = 'sprite'
+/** The one-glyph button under a Sky buddy; a press gets a reaction. */
+const PET_GLYPH = '\u2726'
 
 class Player {
   private index = 0
@@ -912,7 +914,6 @@ export const register: Register = (on, options) => {
   const sources = enabledSources(options)
   let player: Player | undefined
   let actor: Actor | undefined
-  let name = ''
 
   const notify = (event: SessionEvent) => actor?.notify(event)
 
@@ -961,7 +962,6 @@ export const register: Register = (on, options) => {
         actor?.stop()
         player = undefined
         actor = undefined
-        name = summon.entry.paths.species ?? summon.entry.species
         if (summon.kind === 'loop') {
           player = new Player(playback, summon.sprite)
           player.start()
@@ -974,7 +974,8 @@ export const register: Register = (on, options) => {
           )
           actor.start()
         }
-        $.ui.log(describe(summon))
+        // Who the buddy is and who drew it, in the debug log only.
+        $.ui.log(describe(summon), { to: 'debug' })
         $.ui.invalidate('ui.render')
       })
       .catch((error: unknown) => $.ui.log(`no sprite (${String(error)})`))
@@ -1027,11 +1028,11 @@ export const register: Register = (on, options) => {
       <Box width="100%" height={CONFIG.rows} alignItems="flex-end">
         {CONFIG.petButton ? (
           <Button key="pet" plain dimColor onPress={() => notify({ kind: 'poke' })}>
-            {name}
+            {PET_GLYPH}
           </Button>
         ) : null}
         <Box position="absolute" left={actor.column} top={0}>
-          <Image key={IMAGE_KEY} source={actor.source} columns={actor.columns} rows={CONFIG.rows} alt={name} />
+          <Image key={IMAGE_KEY} source={actor.source} columns={actor.columns} rows={CONFIG.rows} alt=" " />
         </Box>
       </Box>
     )

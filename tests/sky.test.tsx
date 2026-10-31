@@ -101,7 +101,7 @@ test('lists through the sprite server, fetches the zip with curl, and walks the 
   const image = await ui.find({ type: 'Image', key: 'sprite' })
   expect(image?.props.rows).toBe(3)
   expect(image?.props.columns).toBe(7)
-  expect(image?.props.alt).toBe('Testchu')
+  expect(image?.props.alt).toBe(' ')
   expect(await ui.find({ type: 'Button', key: 'pet' })).toBeDefined()
 
   await clock.advance(30_000)

@@ -274,10 +274,11 @@ frame.
 
 ### 4.5 A tiny optional interaction
 
-The `Image` is a leaf with no `onPress`, but a `Button` beside it (the
-species name, dim) raises `ui.press`. Pressing it could play Pose or Nod.
-Parked (2026-10-31): not in the first release. If it comes back, it stays
-off by default behind a config switch so the band stays quiet.
+The `Image` is a leaf with no `onPress`, but a `Button` beside it raises
+`ui.press`. Shipped in 0.4.0 as a dim one-glyph button (✦) under the
+sprite, no species name on screen (the author's call); a press queues Pose,
+Nod, LookUp or Attack, whichever the sprite has. `CONFIG.petButton` turns it
+off.
 
 ## 5. Drawing: walking the width of the band
 

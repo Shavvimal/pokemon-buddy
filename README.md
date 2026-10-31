@@ -178,7 +178,7 @@ two species feel different. While Claude works, a buddy with high
 attachment walks to the prompt end and watches. When you submit a prompt, a
 sleeping buddy wakes (with the Wake clip) and an awake one looks up or
 nods. A long turn that ends well earns a pose; a turn that errors or is
-interrupted earns a cringe. Ten quiet minutes make it sleepy. The dim name
+interrupted earns a cringe. Ten quiet minutes make it sleepy. The dim ✦
 under the sprite is a button: press it for a pose.
 
 The band moves the sprite by whole columns through a redraw (ten a second
@@ -211,7 +211,7 @@ Edit `CONFIG` at the top of `hooks/register.tsx`:
 | `stripFrameMs` | about 117 | Time per frame for Prism strips, which have no timings of their own. |
 | `shinyOdds` | `512` | One session in this many gets the shiny colours. `0` turns shinies off. |
 | `cacheLimit` | `{ crystal: 40, sky: 12 }` | Sprites kept for offline sessions: Crystal-style ones are 2 to 25 KB, Sky rigs 45 to 130 KB, and the store holds 4 MiB. |
-| `petButton` | `true` | Draws the buddy's name under it as a button; pressing it gets a pose. |
+| `petButton` | `true` | Draws a dim ✦ under the buddy as a button; pressing it gets a pose. |
 | `downloadTimeoutMs` | `25000` | How long `curl` may take to fetch one Sky sprite zip. |
 | `listMaxAgeMs` | 7 days | How long each source's list is kept before it is fetched again. |
 | `exclude` | `['egg']` | Polished Crystal folders left out of the draw. |
@@ -278,8 +278,9 @@ claude plugin marketplace remove pokemon-buddy
   a community project that draws Pokémon Mystery Dungeon sprites and
   portraits for every species, under
   [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/). Each
-  sprite's artists are named in its `credits.txt`, and the mod logs them when
-  it draws the buddy (`pokemon-buddy: Pikachu (Sky), sprites by …`). The
+  sprite's artists are named in its `credits.txt`, and the mod writes them to
+  Claude Code's debug log when it draws the buddy (`Pikachu (Sky), sprites
+  by …`). The
   originals from Explorers of Sky, credited to CHUNSOFT, stay the property of
   Spike Chunsoft, Nintendo, Creatures Inc., GAME FREAK inc. and The Pokémon
   Company. The sprites, their lists and their zips come from the project's

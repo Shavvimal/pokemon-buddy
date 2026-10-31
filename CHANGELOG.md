@@ -24,12 +24,12 @@ This project follows [Semantic Versioning](https://semver.org).
 - The buddy notices the session: a prompt wakes it or makes it look up; a
   long turn that ends well gets a pose, an aborted or failed one a cringe;
   while Claude works it walks to the prompt end and watches; ten quiet
-  minutes make it sleepy. Its name under the sprite is a button: a press
-  gets a pose.
+  minutes make it sleepy. A dim ✦ under the sprite is a button: a press gets
+  a pose. The species and its artists go to the debug log, not the screen.
 - The codecs moved to `hooks/codecs.ts` (now also raw deflate, a zip reader,
   and palette and RGB PNGs); the Sky engine is `hooks/sky.tsx`.
 - The cache limit is per style (`{ crystal: 40, sky: 12 }`), as the store
-  holds 4 MiB. Log lines no longer repeat the plugin name.
+  holds 4 MiB.
 
 ## 0.3.1 - 2026-10-30
 

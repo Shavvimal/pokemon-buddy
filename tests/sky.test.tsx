@@ -153,7 +153,12 @@ test('builds a rig with the front and side rows, anchored on the ground point', 
   expect(rig.clips.get('Sit')?.rows).toBe(1)
   // The ground marker is at the bottom centre of every test frame.
   expect(rig.clips.get('Idle')!.frames.get(2)![0]!.ground).toEqual({ x: 4, y: 7 })
+  // The tallest test frame (Rotate's last) is opaque from row 0 to row 6 and
+  // columns 1 to 6 around the ground at (4, 7): the canvas is 8 wide with
+  // the ground on its bottom row.
   expect(rig.canvas.side).toBe(8)
+  expect(rig.canvas.groundY).toBe(7)
+  expect(rig.canvas.groundX).toBe(4)
   expect(Math.round(rig.clips.get('Idle')!.delaysMs[0]!)).toBe(200)
   const geo = geometry(rig)
   expect(geo.columns).toBe(7)

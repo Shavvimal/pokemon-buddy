@@ -907,6 +907,9 @@ function skyArtists(credits: string | undefined): string {
     .map(line => line.split('\t'))
     .filter(parts => parts[2] === 'CUR' && parts[1])
     .map(parts => parts[1]!)
+    // Some entries are chat-service user ids, not names; credit_names.txt
+    // in the repository maps them, and the log line does without.
+    .filter(name => !/^<@/.test(name))
   return [...new Set(names)].join(', ')
 }
 
@@ -1024,16 +1027,19 @@ export const register: Register = (on, options) => {
 
     actor.setWorking(e.props.isWorking)
     actor.drawn(e.requestId, e.props.bodyColumns)
+    // The sprite stays in the flow, behind a spacer, so the band is exactly
+    // as tall as the picture; the button is the element placed over it.
     return (
-      <Box width="100%" height={CONFIG.rows} alignItems="flex-end">
+      <Box width="100%" flexDirection="row">
+        <Box width={actor.column} />
+        <Image key={IMAGE_KEY} source={actor.source} columns={actor.columns} rows={CONFIG.rows} alt=" " />
         {CONFIG.petButton ? (
-          <Button key="pet" plain dimColor onPress={() => notify({ kind: 'poke' })}>
-            {PET_GLYPH}
-          </Button>
+          <Box position="absolute" left={0} bottom={0}>
+            <Button key="pet" plain dimColor onPress={() => notify({ kind: 'poke' })}>
+              {PET_GLYPH}
+            </Button>
+          </Box>
         ) : null}
-        <Box position="absolute" left={actor.column} top={0}>
-          <Image key={IMAGE_KEY} source={actor.source} columns={actor.columns} rows={CONFIG.rows} alt=" " />
-        </Box>
       </Box>
     )
   })

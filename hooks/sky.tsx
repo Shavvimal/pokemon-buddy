@@ -102,8 +102,9 @@ export function pickSheets(members: Map<string, () => Uint8Array>): SkyFiles {
 
 type Point = { x: number; y: number }
 
-/** One frame of one row: its pixels and where its feet are. */
-type FrameData = { rgba: Uint8Array; ground: Point }
+/** One frame of one row: its pixels, where its feet are, and how far its
+ * opaque pixels reach from there (left, right, up and down, in pixels). */
+type FrameData = { rgba: Uint8Array; ground: Point; reach: { left: number; right: number; up: number; down: number } }
 
 export type Clip = {
   name: string
@@ -184,7 +185,7 @@ function decodeClip(
         (shadow?.kind === 'rgba' ? findMarker(shadow.rgba, shadow.width, tile, isWhite) : undefined) ??
         (offsets?.kind === 'rgba' ? findMarker(offsets.rgba, offsets.width, tile, isGreen) : undefined) ??
         { x: Math.floor(frameWidth / 2), y: frameHeight - 1 }
-      list.push({ rgba, ground })
+      list.push({ rgba, ground, reach: reachOf(rgba, frameWidth, frameHeight, ground) })
     }
     frames.set(row, list)
   }
@@ -209,6 +210,31 @@ function cutTile(rgba: Uint8Array, sheetWidth: number, tile: Tile): Uint8Array {
   return out
 }
 
+/** How far a frame's opaque pixels reach from its ground point; a frame
+ * carries transparent padding, which must not push the feet off the floor. */
+function reachOf(rgba: Uint8Array, width: number, height: number, ground: Point): FrameData['reach'] {
+  let minX = width
+  let maxX = -1
+  let minY = height
+  let maxY = -1
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (rgba[(y * width + x) * 4 + 3] === 0) continue
+      minX = Math.min(minX, x)
+      maxX = Math.max(maxX, x)
+      minY = Math.min(minY, y)
+      maxY = Math.max(maxY, y)
+    }
+  }
+  if (maxX < 0) return { left: 0, right: 0, up: 0, down: 0 }
+  return {
+    left: Math.max(0, ground.x - minX),
+    right: Math.max(0, maxX - ground.x),
+    up: Math.max(0, ground.y - minY),
+    down: Math.max(0, maxY - ground.y),
+  }
+}
+
 const isWhite = (r: number, g: number, b: number) => r === 255 && g === 255 && b === 255
 /** Green, or any mix that holds it: the markers combine where they overlap. */
 const isGreen = (_r: number, g: number, _b: number) => g === 255
@@ -229,32 +255,33 @@ function findMarker(
 }
 
 /**
- * The square box that holds every kept frame once its ground point sits at
- * one place, leaving out the wide attack frames (they are clipped to it).
+ * The square box that holds the opaque pixels of every kept frame once its
+ * ground point sits at one place, with the feet on the bottom edge, leaving
+ * out the wide attack frames (they are clipped to it).
  */
 function fitCanvas(clips: Map<string, Clip>): Rig['canvas'] {
   let left = 0
-  let right = 1
-  let up = 1
+  let right = 0
+  let up = 0
   let down = 0
   for (const clip of clips.values()) {
     if (WIDE_ACTIONS.has(clip.name)) continue
     for (const frames of clip.frames.values()) {
-      for (const { ground } of frames) {
-        left = Math.max(left, ground.x)
-        right = Math.max(right, clip.frameWidth - ground.x)
-        up = Math.max(up, ground.y + 1)
-        down = Math.max(down, clip.frameHeight - ground.y - 1)
+      for (const { reach } of frames) {
+        left = Math.max(left, reach.left)
+        right = Math.max(right, reach.right)
+        up = Math.max(up, reach.up)
+        down = Math.max(down, reach.down)
       }
     }
   }
-  const width = left + right
-  const height = up + down
+  const width = left + right + 1
+  const height = up + down + 1
   const side = Math.max(width, height)
   return {
     side,
     groundX: left + Math.floor((side - width) / 2),
-    groundY: up + (side - height) - 1,
+    groundY: up + (side - height),
   }
 }
 

@@ -11,15 +11,17 @@ Original code and documentation, under the MIT licence in
 [LICENSE](LICENSE). The test sprites in `tests/buddy.test.tsx` and
 `tests/sky-zip.ts` are plain shaded squares made for this repository.
 
-Two exceptions show one frame of Pokémon Crystal's Charizard sprite (from
-PokeAPI/sprites), drawn through this mod, to illustrate what the mod does:
+Two exceptions each show one sprite, to illustrate what the mod does:
 
-- `docs/header.png`, the README header: a mockup of a terminal session.
-- `.claude-plugin/icon.png`, the plugin icon.
+- `docs/header.gif`, the README header: a mockup of a terminal session in
+  which SpriteCollab's Pikachu sprite (the Explorers of Sky original,
+  credited to CHUNSOFT in `sprite/0025/credits.txt`) walks the band.
+- `.claude-plugin/icon.png`, the plugin icon: one frame of Pokémon Crystal's
+  Charizard sprite (from PokeAPI/sprites).
 
-That sprite is not covered by the MIT licence. It stays the property of
-Nintendo, Creatures Inc., GAME FREAK inc. and The Pokémon Company. Both images
-will be removed on request: open an issue.
+Neither sprite is covered by the MIT licence. They stay the property of
+Spike Chunsoft, Nintendo, Creatures Inc., GAME FREAK inc. and The Pokémon
+Company. Both images will be removed on request: open an issue.
 
 ## What this repository does not contain
 

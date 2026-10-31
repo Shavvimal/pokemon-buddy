@@ -18,7 +18,7 @@ makes the repository installable, and `tests/` holds the engine tests.
   fetches sprites at run time from the sources credited in `README.md` and
   `NOTICE.md`.
 - Test data is drawn for this repository (the shaded squares in
-  `tests/buddy.test.tsx` and the zip of them in `tests/sky-zip.ts`). `docs/header.png` and `.claude-plugin/icon.png`
+  `tests/buddy.test.tsx` and the zip of them in `tests/sky-zip.ts`). `docs/header.gif` and `.claude-plugin/icon.png`
   are the two documented exceptions (see `NOTICE.md`); add no more.
 - A new source gets a `SpriteSource` strategy, a `userConfig` switch in
   `plugin.json`, and an entry in both the README's Attribution and `NOTICE.md`.

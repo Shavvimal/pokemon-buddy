@@ -30,6 +30,8 @@ This project follows [Semantic Versioning](https://semver.org).
   and palette and RGB PNGs); the Sky engine is `hooks/sky.tsx`.
 - The cache limit is per style (`{ crystal: 40, sky: 12 }`), as the store
   holds 4 MiB.
+- README header: an animation of the Sky buddy walking a mocked-up band
+  (`docs/header.gif`, SpriteCollab's Pikachu), in place of the Charizard still.
 
 ## 0.3.1 - 2026-10-30
 

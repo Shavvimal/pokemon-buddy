@@ -5,12 +5,18 @@
 [![licence: MIT](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 
 <p align="center">
-  <img src="docs/header.png" alt="A Claude Code session in a terminal, with an animated Charizard sprite at the right end of the row above the prompt" width="960">
+  <img src="docs/header.gif" alt="A Claude Code session in a terminal. In the row above the prompt an animated Pikachu walks from left to right, turns around, walks back, looks up, sits down, falls asleep, wakes, strikes a pose and walks off again" width="960">
 </p>
 
-A [Claude Code](https://claude.com/claude-code) mod that gives every session
-one random Pokémon in the row above your prompt, in one of two styles you
-pick in `/config`:
+A little desktop pet for your terminal. Pokémon Buddy gives every
+[Claude Code](https://claude.com/claude-code) session one random Pokémon
+that lives in the row above your prompt: it wanders the full width of the
+row, turns at the edges, stops to look around, sits down, eats, naps, and
+plays around to entertain you while you code. It notices you too: it wakes
+when you type, watches while Claude works, and poses when a long turn ends
+well. Each species has a character of its own.
+
+You pick one of two styles in `/config`:
 
 - **Sky** (the default): a Pokémon Mystery Dungeon: Explorers of Sky style
   sprite from [PMDCollab/SpriteCollab](https://github.com/PMDCollab/SpriteCollab)
@@ -36,8 +42,8 @@ About one session in 512 gets a shiny, in either style.
 
 **The mod ships no sprites.** It fetches each one from its public source
 when a session starts. The two exceptions in this repository are the header
-image above and the plugin icon, which show one sprite to illustrate the mod. See
-[Attribution](#attribution).
+animation above and the plugin icon, which each show one sprite to
+illustrate the mod. See [Attribution](#attribution).
 
 ## Install
 
@@ -309,12 +315,13 @@ Code fetches them from the public repositories above. Using a source is the
 user's own choice, and each one can be turned off. The MIT licence of this
 repository covers only its own code.
 
-The header image, `docs/header.png`, and the plugin icon,
-`.claude-plugin/icon.png`, show Pokémon Crystal's Charizard sprite (from
-PokeAPI/sprites), drawn through this mod, to illustrate what the mod does. The
-sprite is not covered by the MIT licence. It stays the property of Nintendo,
-Creatures Inc., GAME FREAK inc. and The Pokémon Company, and both images will
-be removed on request.
+The header animation, `docs/header.gif`, shows SpriteCollab's Pikachu
+sprite (its Explorers of Sky original, credited to CHUNSOFT) walking a
+mocked-up band, and the plugin icon, `.claude-plugin/icon.png`, shows Pokémon
+Crystal's Charizard sprite (from PokeAPI/sprites), both drawn to illustrate
+what the mod does. Neither sprite is covered by the MIT licence. They stay the
+property of Spike Chunsoft, Nintendo, Creatures Inc., GAME FREAK inc. and The
+Pokémon Company, and both images will be removed on request.
 
 [NOTICE.md](NOTICE.md) has the full notice. If you made one of these sprites
 and want this mod to stop fetching it, open an issue.

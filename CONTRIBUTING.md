@@ -7,7 +7,7 @@ Thanks for helping. Bug reports, fixes and small features are welcome.
 - **No game assets in this repository.** Never commit a sprite, palette, frame
   script, ROM or ROM extract, from any game or ROM hack. The mod fetches assets
   at run time. Test data must be made for this repository, like the shaded
-  square in `tests/buddy.test.tsx`. The README header, `docs/header.png`, and
+  square in `tests/buddy.test.tsx`. The README header, `docs/header.gif`, and
   the plugin icon, `.claude-plugin/icon.png`, are the two exceptions, and
   `NOTICE.md` explains them. Do not add more.
 - **Credit every source.** If a change reads from a new source, add it to the

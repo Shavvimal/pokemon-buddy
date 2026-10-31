@@ -165,8 +165,10 @@ claude plugin marketplace add /path/to/pokemon-buddy
 claude plugin install pokemon-buddy@pokemon-buddy
 ```
 
-After an edit, run `/reload-plugins` in a session. See
-[CONTRIBUTING.md](CONTRIBUTING.md).
+After an edit, run `/reload-plugins` in a session.
+[DEVELOPING.md](DEVELOPING.md) has the full workflow: trying a change in one
+session while the marketplace version is installed, shipping it, and updating
+your install. [CONTRIBUTING.md](CONTRIBUTING.md) has the rules.
 
 ## Remove
 

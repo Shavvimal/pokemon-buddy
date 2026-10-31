@@ -559,7 +559,10 @@ export class Actor {
   drawn(site: string, bodyColumns: number): void {
     this.site = site
     if (bodyColumns !== this.bodyColumns) {
-      this.bodyColumns = Math.max(this.geo.columns + 1, bodyColumns)
+      // Room for the sprite and two columns of walk. The picture's spare
+      // columns may hang past a narrower band: they are transparent there,
+      // and the band clips them.
+      this.bodyColumns = Math.max(this.geo.spriteColumns + 2, bodyColumns)
       this.pos = Math.min(this.pos, this.maxPos)
     }
     this.drawnColumn = this.column

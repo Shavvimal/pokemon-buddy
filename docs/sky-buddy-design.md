@@ -369,7 +369,8 @@ What keeps the cost down (0.4.2):
 - The actor ticks at most about 30 times a second (`MIN_TICK_MS` 33); a
   shorter frame is skipped over.
 
-Measured headless over five simulated minutes with real SpriteCollab rigs
+`make bench` (`scripts/bench-sky.ts`, see `DEVELOPING.md`) reruns this
+measurement against budgets. Measured headless over five simulated minutes with real SpriteCollab rigs
 (0025, 0094, 0448, 0483) on a 100-column band, 0.4.1 then 0.4.2: image
 bytes per second fell from 650–2030 KB to 9–30 KB, and re-renders per
 second from 1.9–5.5 to 0.3–1.0. Painting a new picture took 0.2 to 1 ms

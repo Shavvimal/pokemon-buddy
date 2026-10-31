@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 import type { ImageSource } from 'claude-code'
-import { decodePng, encodePng, fromBase64, readZip } from '../hooks/codecs'
+import { decodePng, deflateZlib, encodePng, fromBase64, inflateZlib, readZip } from '../hooks/codecs'
 import { Actor, buildRig, geometry, parseAnimData, pickSheets, profileFor, seeded, SLACK_COLUMNS, type Rig } from '../hooks/sky'
 import { SKY_ZIP } from './sky-zip'
 
@@ -169,13 +169,20 @@ test('builds a rig with the front and side rows, anchored on the ground point', 
 
 // ── The actor ──
 
-/** Runs the actor on a hand-cranked clock. */
+/** Runs the actor on a hand-cranked clock. The band draws as the host does:
+ * once at the start, then after each invalidate, reading the width and the
+ * picture; `rendered` keeps each picture a draw showed. */
 function crank(rig: Rig, random: () => number, bodyColumns = 40) {
   const timers: { at: number; fn: () => void; cancelled: boolean }[] = []
   let now = 0
   const blits: number[] = []
   const sources: ImageSource[] = []
+  const rendered: ImageSource[] = []
+  /** Each blit, with the picture on show just before it. */
+  const swaps: { from: ImageSource | undefined; to: ImageSource }[] = []
+  let onShow: ImageSource | undefined
   let invalidations = 0
+  let isRenderDue = true
   const actor = new Actor(
     {
       after: (ms, fn) => {
@@ -186,14 +193,26 @@ function crank(rig: Rig, random: () => number, bodyColumns = 40) {
       blit: (_, source) => {
         blits.push(now)
         sources.push(source)
+        swaps.push({ from: onShow, to: source })
+        onShow = source
       },
-      invalidate: () => void invalidations++,
+      invalidate: () => {
+        invalidations++
+        isRenderDue = true
+      },
       random,
     },
     rig,
     profileFor(25, rig)
   )
-  actor.drawn('band', bodyColumns)
+  const render = () => {
+    if (!isRenderDue) return
+    isRenderDue = false
+    actor.drawn('band', bodyColumns)
+    onShow = actor.source
+    rendered.push(onShow)
+  }
+  render()
   actor.start()
   const advance = (ms: number) => {
     const until = now + ms
@@ -203,7 +222,7 @@ function crank(rig: Rig, random: () => number, bodyColumns = 40) {
       timers.splice(timers.indexOf(due), 1)
       now = due.at
       due.fn()
-      actor.drawn('band', bodyColumns)
+      render()
     }
     now = until
   }
@@ -212,6 +231,8 @@ function crank(rig: Rig, random: () => number, bodyColumns = 40) {
     advance,
     blits,
     sources,
+    rendered,
+    swaps,
     count: () => invalidations,
     pending: () => timers.filter(t => !t.cancelled).length,
   }
@@ -372,7 +393,7 @@ test('a painted PNG decodes to the pixels it was made from', async () => {
 
 test('a walk swaps only changed pictures, as PNGs, and moves the band every few columns', async () => {
   const rig = buildRig(files(), SHAPE)
-  const { actor, advance, sources } = crank(rig, seeded(7), 80)
+  const { actor, advance, sources, rendered, swaps } = crank(rig, seeded(7), 80)
   const maxColumn = 80 - actor.columns
   let column = actor.column
   let moves = 0
@@ -388,7 +409,45 @@ test('a walk swaps only changed pictures, as PNGs, and moves the band every few 
   expect(moves).toBeGreaterThan(0)
   expect(sources.length).toBeGreaterThan(0)
   expect(sources.every(source => 'png' in source)).toBe(true)
-  // The same picture is never sent twice in a row; repeats are cached.
-  for (let i = 1; i < sources.length; i++) expect(sources[i]).not.toBe(sources[i - 1])
-  expect(new Set(sources).size).toBeLessThan(sources.length)
+  // A blit never sends the picture already on show, from a blit or a draw.
+  for (const { from, to } of swaps) expect(to).not.toBe(from)
+  // Pictures repeat, and the repeats come from the cache, not a new paint.
+  expect(new Set([...sources, ...rendered]).size).toBeLessThan(sources.length + rendered.length)
+})
+
+test('on a narrow band the sprite stays inside it; only transparent spare columns hang past', async () => {
+  const rig = buildRig(files(), SHAPE)
+  const { columnPx, spriteColumns } = geometry(rig)
+  for (const width of [spriteColumns + 2, spriteColumns + 3, spriteColumns + SLACK_COLUMNS, 10, 12]) {
+    const { actor, advance } = crank(rig, seeded(width), width)
+    for (let i = 0; i < 1500; i++) {
+      advance(50)
+      const picture = decodePng(fromBase64((actor.source as { png: string }).png))
+      if (picture.kind !== 'rgba') throw new Error('not RGBA')
+      let right = -1
+      for (let p = 0; p < picture.width * picture.height; p++) {
+        if (picture.rgba[p * 4 + 3] !== 0) right = Math.max(right, p % picture.width)
+      }
+      // The right-most opaque pixel, in band columns, is inside the band.
+      expect(actor.column + (right + 1) / columnPx).toBeLessThanOrEqual(width + 1e-9)
+      expect(actor.column).toBeGreaterThanOrEqual(0)
+    }
+  }
+})
+
+test('the encoder writes the standard checksums and round-trips long, repeating data', async () => {
+  // Adler-32 of "Wikipedia" is 0x11E60398 (the zlib trailer, big-endian).
+  const wiki = deflateZlib(new TextEncoder().encode('Wikipedia'))
+  expect([...wiki.subarray(-4)]).toEqual([0x11, 0xe6, 0x03, 0x98])
+  // Every PNG ends with the same IEND chunk, whose CRC-32 is 0xAE426082.
+  const png = encodePng(new Uint8Array(4), 1, 1)
+  expect([...png.subarray(-8)]).toEqual([0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82])
+  // Empty input, overlapping runs, the longest match and distances past the
+  // 32 KiB window all inflate back to the input.
+  const long = new Uint8Array(70_000)
+  for (let i = 0; i < long.length; i++) long[i] = i < 300 ? 7 : (i * 2654435761) >>> 27
+  long.copyWithin(40_000, 1_000, 6_000)
+  for (const data of [new Uint8Array(0), Uint8Array.of(1), new Uint8Array(258 + 3).fill(9), long]) {
+    expect([...inflateZlib(deflateZlib(data))]).toEqual([...data])
+  }
 })

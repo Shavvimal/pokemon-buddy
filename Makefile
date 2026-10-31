@@ -1,9 +1,9 @@
 # One gate for every change: `make check` runs what CI runs, plus the type check
 # and the private-term scan, which need files only your machine has.
 
-.PHONY: check hygiene validate test typecheck
+.PHONY: check hygiene validate test typecheck bench bench-if-fetched
 
-check: hygiene validate test typecheck
+check: hygiene validate test typecheck bench-if-fetched
 
 hygiene:
 	node scripts/check-hygiene.mjs
@@ -23,3 +23,15 @@ typecheck:
 	else \
 		echo "typecheck: skipped; run 'claude --plugin-dir .' once to write .claude-plugin/types/"; \
 	fi
+
+# The Sky drawing-cost benchmark (scripts/bench-sky.ts): real SpriteCollab
+# rigs on a simulated clock, against budgets. `bench` fetches the sprites into
+# $XDG_CACHE_HOME/pokemon-buddy/bench (outside the repository) on first use;
+# `check` runs it only once they are there. CI does not run it.
+BENCH = node --experimental-transform-types --no-warnings scripts/bench-sky.ts
+
+bench:
+	$(BENCH) --fetch
+
+bench-if-fetched:
+	@$(BENCH)

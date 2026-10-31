@@ -48,8 +48,10 @@ updating an install. Keep it accurate when a step changes.
 
 ## Gate
 
-`make check` runs the hygiene scan, `claude plugin validate --profile directory`, the engine tests, and `tsc` when Claude Code has written the types
-(`claude --plugin-dir .` once). CI runs the first three on every pull request.
+`make check` runs the hygiene scan, `claude plugin validate --profile directory`, the engine tests, `tsc` when Claude Code has written the types
+(`claude --plugin-dir .` once), and the Sky drawing-cost bench
+(`scripts/bench-sky.ts`) once `make bench` has fetched its sprites outside the
+repository. CI runs the first three on every pull request.
 
 - `main` is protected: changes land through a pull request, squash-merged,
   with the `check` and `version-bump` checks green.

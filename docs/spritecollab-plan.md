@@ -183,8 +183,9 @@ See `sky-buddy-design.md` §4 for the design. Implementation choices:
 
 See `sky-buddy-design.md` §5. Choices:
 
-- The `Image` is `columns = rows × cellAspect + 1`, canvas padded by one
-  column of pixels for sub-column shifts. Default `rows` stays 3; at 3 rows
+- The `Image` is `columns = rows × cellAspect + SLACK_COLUMNS` (3), canvas
+  padded by three columns of pixels for sub-column shifts, so a walk
+  re-renders once every three columns (0.4.2; it was `+ 1`). Default `rows` stays 3; at 3 rows
   the Pokémon is 6 columns wide and legible, and `rows: 4` is the knob for a
   larger pet.
 - A column move is `$.ui.invalidate('ui.render')`; the render hook reads

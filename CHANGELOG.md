@@ -2,6 +2,16 @@
 
 This project follows [Semantic Versioning](https://semver.org).
 
+## 0.4.2 - 2026-10-31
+
+- Sky style: a walking buddy costs far less to draw, so typing beside it
+  and its own motion stutter less. Each picture is painted once and kept,
+  a tick that changes nothing sends nothing, and pictures go out as PNGs
+  of 1 to 5 KB instead of 30 to 150 KB of raw pixels. The picture is three
+  columns wider than the sprite, so the band redraws once every three
+  columns of walk instead of every column. The animation ticks at most
+  about 30 times a second.
+
 ## 0.4.1 - 2026-10-31
 
 - Sky style: while Claude works, a buddy that walks to the prompt end now

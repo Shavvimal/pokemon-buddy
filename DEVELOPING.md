@@ -79,11 +79,29 @@ make check
 | `validate` | `claude plugin validate . --profile directory`: manifest, marketplace and hooks module, against the plugin directory's rules |
 | `test` | `claude plugin test .`: the engine tests in `tests/` |
 | `typecheck` | `tsc -p tsconfig.json`, once `.claude-plugin/types/` exists |
+| `bench-if-fetched` | the Sky drawing-cost bench, once `make bench` has fetched its sprites |
 
 The tests run against the engine itself, with a mocked clock, store and
 network. They check what the mod draws, not what a terminal paints, so a change
 to drawing or animation also needs a look in a real session (Ghostty, kitty,
 or iTerm2 3.5 or later).
+
+### The drawing-cost bench
+
+`make bench` runs `scripts/bench-sky.ts`: the real `Actor` on four real
+SpriteCollab rigs, five simulated minutes each, on a 100-column band. It
+prints what each rig would send to the host (image KB, redraws and blits a
+second) and fails when a rig is over the budget at the top of the script.
+
+- The first run fetches the four sprite zips into
+  `$XDG_CACHE_HOME/pokemon-buddy/bench` (by default `~/.cache/...`), outside
+  the repository. They are game assets: never copy them into it.
+- After that, `make check` runs the bench too. Until then it says
+  `bench: skipped` and passes. CI never runs it, because it needs the network.
+- It needs Node 22.7 or later (`--experimental-transform-types`).
+
+Run it before and after a change to `hooks/sky.tsx` or the PNG encoder in
+`hooks/codecs.ts`, and put the numbers in the pull request.
 
 ## Ship a change
 

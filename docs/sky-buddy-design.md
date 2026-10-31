@@ -303,13 +303,19 @@ second, and everything else (frames, sub-column shifts) through blit.
 
 ### 5.3 Sub-column smoothing
 
-Pad the sprite canvas by one column's worth of pixels (`canvasPx / columns`
-per column: for an 80 px canvas in 6 columns, 13 px). The sprite is painted
-at pixel offset `fx` in `[0, 13)` inside the padded canvas; the `Image` is
-one column wider. Position = `x` columns + `fx` pixels. A move advances `fx`;
-when it wraps, `x += 1` and the band re-renders. At 4 columns a second that
-is 4 re-renders and about 50 blits a second, both inside the limits, and the
-motion is pixel-smooth.
+Pad the sprite canvas by `SLACK_COLUMNS` (3) columns' worth of pixels
+(`canvasPx / columns` per column: for an 80 px canvas in 6 columns, 13 px a
+column, 40 px in all). The sprite is painted at pixel offset `fx` in
+`[0, 40]` inside the padded canvas, in whole sprite pixels (steps of
+`pixelScale`); the `Image` is three columns wider. Position = `x` columns +
+`fx` pixels. A move advances `fx`; when the sprite would leave the canvas,
+`x` jumps so the spare columns lie ahead in the walk's direction, and the
+band re-renders. At 4 columns a second that is about 1.3 re-renders a
+second, not 4, and the motion stays pixel-smooth.
+
+The spare columns are the trade: a re-render redraws the band beside the
+prompt and competes with typing, while a wider picture is mostly
+transparent and costs little more as a PNG (section 5.6).
 
 Layout: `<Box width="100%"><Box position="absolute" left={x}><Image
 key="sprite" columns={spriteColumns + 1} rows={rows} … /></Box></Box>`.
@@ -344,12 +350,31 @@ stride 3 columns, the band's 74 free columns take 15 s to cross. Right.
 
 | Thing | Rate | Bytes |
 | --- | --- | --- |
-| Frame or sub-column blit | ≤ 60/s shown, usually 2–10/s | 93×80 RGBA = 30 KB raw, 40 KB base64 |
-| Column re-render | ≤ 10/s, usually ≤ 4/s | the band tree + one image |
+| Frame or sub-column blit | ≤ 30/s, usually 6–13/s | a PNG of 1 to 5 KB base64 |
+| Column re-render | ≤ 10/s, usually ≤ 1/s | the band tree + one image |
 | Band-wide image (rejected) | would be 10/s | 1067×80 RGBA = 340 KB raw per frame |
 
 The rejected option is the one to avoid: one wide image blitted every frame
 would push 3 to 4 MB/s of base64 through the engine and tmux.
+
+What keeps the cost down (0.4.2):
+
+- The actor paints each (clip, row, frame, shift) once and keeps the
+  picture, up to 512 of them; a walk cycle repeats, so a walk soon paints
+  nothing new.
+- A tick whose picture is the one on show sends no blit.
+- The picture is a PNG the mod encodes (`encodePng` in `codecs.ts`), not raw
+  RGBA: a painted sprite is mostly transparent and upscaled, so it comes to
+  1 to 5 KB of base64 where raw RGBA took 30 to 150 KB.
+- The actor ticks at most about 30 times a second (`MIN_TICK_MS` 33); a
+  shorter frame is skipped over.
+
+`make bench` (`scripts/bench-sky.ts`, see `DEVELOPING.md`) reruns this
+measurement against budgets. Measured headless over five simulated minutes with real SpriteCollab rigs
+(0025, 0094, 0448, 0483) on a 100-column band, 0.4.1 then 0.4.2: image
+bytes per second fell from 650–2030 KB to 9–30 KB, and re-renders per
+second from 1.9–5.5 to 0.3–1.0. Painting a new picture took 0.2 to 1 ms
+(median) on Node 24; the hooks runtime was not timed.
 
 ## 6. Timing
 

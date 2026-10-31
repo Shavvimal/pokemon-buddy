@@ -2,6 +2,17 @@
 
 This project follows [Semantic Versioning](https://semver.org).
 
+## 0.4.1 - 2026-10-31
+
+- Sky style: while Claude works, a buddy that walks to the prompt end now
+  stops there, turns to face you and watches until the turn ends. In 0.4.0
+  a walk that reached the edge always turned back first, so on a band 80
+  columns or wider the buddy never watched.
+- Sky style: a nap that ends on its own no longer starts a second timer
+  chain. In 0.4.0 every natural wake added one, so the buddy's clock ran
+  ahead of real time and its clips and walk sped up the longer a session
+  ran (five to six times real time after two hours with Gengar).
+
 ## 0.4.0 - 2026-10-31
 
 - A `style` setting, a select in `/config`: `sky` (the new default) or

@@ -332,6 +332,8 @@ stride 3 columns, the band's 74 free columns take 15 s to cross. Right.
 - At an edge, finish the step, then `turn` (section 3), then walk back. With
   probability 0.3 the Pokémon turns before reaching an edge (change of mind),
   never twice within 3 s.
+- Exception: at the right edge while `isWorking` is true, turn to face down
+  and watch (section 4.4) instead of walking back.
 - On a `bodyColumns` change, clamp `x`; if the sprite would overlap the
   engine's `[-]` mark, step left.
 - When `hasSurvey` is true the hook passes (as today); the actor keeps time

@@ -2,6 +2,15 @@
 
 This project follows [Semantic Versioning](https://semver.org).
 
+## 0.3.1 - 2026-10-30
+
+- Plugin icon and README header: Pokémon Crystal's Charizard.
+- CI: public hygiene scan, `claude plugin validate --profile directory`
+  and the engine tests on every pull request, pinned to Claude Code
+  2.1.314; a version-bump gate; tagged GitHub releases from this changelog.
+- `make check`, `tsconfig.json`, `CLAUDE.md`, CODEOWNERS, Dependabot for
+  workflow actions, and issue forms.
+
 ## 0.3.0 - 2026-10-30
 
 - Three sources in one Pokédex: Pokémon Crystal (PokeAPI), Polished Crystal

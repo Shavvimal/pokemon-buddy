@@ -1,0 +1,55 @@
+name: Bug report
+description: The buddy does not show, shows wrongly, or breaks a session
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. For a security problem, do **not** use this form:
+        see [SECURITY.md](../blob/main/SECURITY.md) and report it privately.
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected to see.
+    validations:
+      required: true
+  - type: input
+    id: terminal
+    attributes:
+      label: Terminal
+      description: Name and version, and whether you use tmux.
+      placeholder: Ghostty 1.2, no tmux
+    validations:
+      required: true
+  - type: input
+    id: claude-code
+    attributes:
+      label: Claude Code version
+      description: The output of `claude --version`.
+      placeholder: 2.1.314 (Claude Code)
+    validations:
+      required: true
+  - type: input
+    id: mod-version
+    attributes:
+      label: Pokémon Buddy version
+      description: From `claude plugin list`.
+      placeholder: 0.3.1
+    validations:
+      required: true
+  - type: dropdown
+    id: sources
+    attributes:
+      label: Sources switched on
+      multiple: true
+      options:
+        - crystal
+        - polishedCrystal
+        - prism
+  - type: textarea
+    id: logs
+    attributes:
+      label: Debug lines
+      description: Run `claude --debug` and paste any line that starts with `pokemon-buddy:`.
+      render: text

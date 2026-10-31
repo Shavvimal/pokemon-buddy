@@ -1,7 +1,7 @@
 {
   "name": "pokemon-buddy",
-  "version": "0.3.1",
-  "description": "One random animated Pokémon in the Game Boy Color style of Pokémon Crystal, above your prompt, new each session",
+  "version": "0.4.0",
+  "description": "One random animated Pokémon above your prompt, new each session: a Mystery Dungeon style buddy that walks the band and acts with character, or a Game Boy Color style sprite from Pokémon Crystal",
   "author": {
     "name": "Shavvimal",
     "url": "https://github.com/Shavvimal"
@@ -11,6 +11,7 @@
   "license": "MIT",
   "keywords": [
     "pokemon",
+    "pokemon-mystery-dungeon",
     "pokemon-crystal",
     "pixel-art",
     "terminal",
@@ -18,6 +19,16 @@
     "mod"
   ],
   "userConfig": {
+    "style": {
+      "type": "string",
+      "title": "Style",
+      "description": "Sky: a Mystery Dungeon style Pokémon from PMDCollab/SpriteCollab that walks the band and acts with character (needs curl). Crystal: a Game Boy Color style sprite at the right end, from the three Crystal sources below.",
+      "options": [
+        "sky",
+        "crystal"
+      ],
+      "default": "sky"
+    },
     "crystal": {
       "type": "boolean",
       "title": "Pokémon Crystal sprites",

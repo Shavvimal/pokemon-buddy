@@ -65,10 +65,11 @@ const BAND = {
 } as const
 
 const ONLY = {
-  crystal: { crystal: true, polishedCrystal: false, prism: false },
-  polished: { crystal: false, polishedCrystal: true, prism: false },
-  prism: { crystal: false, polishedCrystal: false, prism: true },
+  crystal: { style: 'crystal', crystal: true, polishedCrystal: false, prism: false },
+  polished: { style: 'crystal', crystal: false, polishedCrystal: true, prism: false },
+  prism: { style: 'crystal', crystal: false, polishedCrystal: false, prism: true },
 } as const
+const CRYSTAL = { style: 'crystal' } as const
 
 const reply = (status: number, text: string) => ({
   value: { status, ok: status === 200, headers: {}, text },
@@ -108,6 +109,7 @@ async function startSession($: Engine, on: On) {
     blits.push(e.key)
     return { value: {} }
   })
+  on('ui.log', () => ({ value: undefined }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   await clock.settle()
@@ -131,7 +133,7 @@ for (const [source, options] of Object.entries(ONLY)) {
   })
 }
 
-test('keeps one sprite per species and form, in source order', async ($, on) => {
+test('keeps one sprite per species and form, in source order', { options: CRYSTAL }, async ($, on) => {
   // Crystal has testmon; Polished Crystal has plain and Alolan testmon;
   // Prism has testmon and othermon. Plain testmon must come from Crystal.
   const { fetched } = await startSession($, on)
@@ -141,7 +143,7 @@ test('keeps one sprite per species and form, in source order', async ($, on) => 
   expect(fetched.some(url => url.includes('egg/'))).toBe(false)
 })
 
-test('falls back to a cached sprite when the network fails', async ($, on) => {
+test('falls back to a cached sprite when the network fails', { options: CRYSTAL }, async ($, on) => {
   const clock = mock.clock(on)
   mock.store(on, {
     'sprite:polished:testmon_plain': {
@@ -151,6 +153,7 @@ test('falls back to a cached sprite when the network fails', async ($, on) => {
   })
   on('http.fetch', () => reply(403, '{"message":"API rate limit exceeded"}'))
   on('ui.blit', () => ({ value: {} }))
+  on('ui.log', () => ({ value: undefined }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
 
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
@@ -180,6 +183,7 @@ test('uses cached lists and sprites without a network call', { options: ONLY.pri
     return internet(e.url)
   })
   on('ui.blit', () => ({ value: {} }))
+  on('ui.log', () => ({ value: undefined }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
 
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })

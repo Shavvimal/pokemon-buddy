@@ -17,7 +17,7 @@
  * repository.
  */
 import type { ImageSource, Timer } from 'claude-code'
-import { decodePng, fromBase64, toBase64 } from './codecs'
+import { decodePng, encodePng, fromBase64, toBase64 } from './codecs'
 
 // ── Sheets ──────────────────────────────────────────────────────────────────
 
@@ -286,9 +286,17 @@ function fitCanvas(clips: Map<string, Clip>): Rig['canvas'] {
 }
 
 // ── Painting ────────────────────────────────────────────────────────────────
-// One frame into the canvas, upscaled, with the canvas one terminal column
-// wider than the sprite so the sprite can shift by a few pixels between the
-// band's column moves.
+// One frame into the canvas, upscaled, with the canvas a few terminal
+// columns wider than the sprite: the sprite shifts by pixels inside it, and
+// the band moves the picture only when the sprite reaches its far side.
+
+/**
+ * The spare columns the picture carries beside the sprite. A column move
+ * redraws the band, which competes with typing; a swap does not. Three spare
+ * columns make one redraw every three columns of walk, for a picture that
+ * is mostly transparent and costs little more as a PNG.
+ */
+export const SLACK_COLUMNS = 3
 
 /** The painted picture's geometry, in terminal cells and pixels. */
 export function geometry(rig: Rig) {
@@ -296,41 +304,47 @@ export function geometry(rig: Rig) {
   const spriteColumns = rows * cellAspect
   const sidePx = rig.canvas.side * pixelScale
   const columnPx = sidePx / spriteColumns
+  const widthPx = sidePx + Math.ceil(columnPx * SLACK_COLUMNS)
   return {
     spriteColumns,
-    /** Columns the Image takes: the sprite plus one for the shift. */
-    columns: spriteColumns + 1,
+    /** Columns the Image takes: the sprite plus the spare ones for the shift. */
+    columns: spriteColumns + SLACK_COLUMNS,
     rows,
     sidePx,
     columnPx,
-    widthPx: sidePx + Math.ceil(columnPx),
+    widthPx,
+    /** The furthest the sprite shifts right inside the picture, in pixels. */
+    slackPx: widthPx - sidePx,
   }
 }
 
+/** One frame, shifted right by `shiftPx`, as a PNG the band draws. */
 export function paint(rig: Rig, clip: Clip, row: number, frame: number, shiftPx: number): ImageSource {
   const { sidePx, widthPx } = geometry(rig)
   const scale = rig.shape.pixelScale
   const data = clip.frames.get(row)?.[frame] ?? clip.frames.get(0)?.[frame] ?? clip.frames.get(0)![0]!
-  const pixels = new Uint8Array(widthPx * sidePx * 4)
+  // Whole pixels as 32-bit words: the byte order of a word copied from one
+  // RGBA buffer to another does not depend on the machine.
+  const pixels = new Uint32Array(widthPx * sidePx)
+  const from = new Uint32Array(data.rgba.buffer, data.rgba.byteOffset, data.rgba.byteLength >> 2)
   const originX = Math.round(shiftPx) + (rig.canvas.groundX - data.ground.x) * scale
   const originY = (rig.canvas.groundY - data.ground.y) * scale
-  const { frameWidth, frameHeight, } = clip
+  const { frameWidth, frameHeight } = clip
   for (let fy = 0; fy < frameHeight; fy++) {
     for (let fx = 0; fx < frameWidth; fx++) {
-      const at = (fy * frameWidth + fx) * 4
-      if (data.rgba[at + 3] === 0) continue
+      const pixel = from[fy * frameWidth + fx]!
+      if (data.rgba[(fy * frameWidth + fx) * 4 + 3] === 0) continue
       for (let dy = 0; dy < scale; dy++) {
         const y = originY + fy * scale + dy
         if (y < 0 || y >= sidePx) continue
         for (let dx = 0; dx < scale; dx++) {
           const x = originX + fx * scale + dx
-          if (x < 0 || x >= widthPx) continue
-          pixels.set(data.rgba.subarray(at, at + 4), (y * widthPx + x) * 4)
+          if (x >= 0 && x < widthPx) pixels[y * widthPx + x] = pixel
         }
       }
     }
   }
-  return { rgba: toBase64(pixels), width: widthPx, height: sidePx }
+  return { png: toBase64(encodePng(new Uint8Array(pixels.buffer), widthPx, sidePx)) }
 }
 
 // ── Profile ─────────────────────────────────────────────────────────────────
@@ -455,14 +469,23 @@ const MOVE_TICK_MS = 50
 const TURN_HOLD_MS = 70
 const QUIET_MS = 10 * 60 * 1000
 const LONG_TURN_MS = 30 * 1000
-const MIN_TICK_MS = 16
+/** About 30 frames a second at most: shorter frames are skipped over. */
+const MIN_TICK_MS = 33
 const MAX_TICK_MS = 5000
+/** Painted pictures kept, newest last; a walk cycle at every shift fits. */
+const PAINT_CACHE_LIMIT = 512
 
 export class Actor {
   /** The band's render instance, set each time the band draws the sprite. */
   site: string | undefined
   /** Where the band drew the sprite last, in columns; `-1` before a draw. */
   private drawnColumn = -1
+  /** The column the picture sits at; it moves only when the sprite leaves it. */
+  private anchor = -1
+  /** Painted pictures by clip, row, frame and shift. */
+  private readonly painted = new Map<string, ImageSource>()
+  /** The picture handed out last, which the band shows. */
+  private shown: ImageSource | undefined
 
   private readonly geo: ReturnType<typeof geometry>
   private t = 0
@@ -498,8 +521,8 @@ export class Actor {
 
   /** The column the Image sits at, within the band. */
   get column(): number {
-    const column = Math.min(Math.floor(this.pos / this.geo.columnPx), this.bodyColumns - this.geo.columns)
-    return Math.max(0, column)
+    this.settle()
+    return this.anchor
   }
 
   get columns(): number {
@@ -511,11 +534,25 @@ export class Actor {
     return { clip: this.cue.clip, row: this.cue.row, frame: this.cue.frame, facing: this.facing, state: this.state.kind }
   }
 
+  /** The picture on show, painted once per clip, row, frame and shift. */
   get source(): ImageSource {
     const column = this.column
-    const shift = this.pos - column * this.geo.columnPx
-    const clip = this.rig.clips.get(this.cue.clip) ?? this.rig.clips.get('Idle')!
-    return paint(this.rig, clip, this.cue.row, this.cue.frame, shift)
+    // Whole sprite pixels: half a pixel of shift is not worth a new picture.
+    const scale = this.rig.shape.pixelScale
+    const raw = Math.round((this.pos - column * this.geo.columnPx) / scale) * scale
+    const shift = Math.min(this.geo.slackPx, Math.max(0, raw))
+    const clipName = this.rig.clips.has(this.cue.clip) ? this.cue.clip : 'Idle'
+    const key = `${clipName}/${this.cue.row}/${this.cue.frame}/${shift}`
+    let source = this.painted.get(key)
+    if (source) {
+      this.painted.delete(key)
+    } else {
+      source = paint(this.rig, this.rig.clips.get(clipName)!, this.cue.row, this.cue.frame, shift)
+      if (this.painted.size >= PAINT_CACHE_LIMIT) this.painted.delete(this.painted.keys().next().value!)
+    }
+    this.painted.set(key, source)
+    this.shown = source
+    return source
   }
 
   /** The band tells the actor how wide it is, each time it draws. */
@@ -618,10 +655,28 @@ export class Actor {
     }
   }
 
+  /** Moves the picture (a redraw) or swaps it (a blit), and only on a change. */
   private draw(): void {
     if (!this.site) return
-    if (this.column !== this.drawnColumn) this.ports.invalidate()
-    else this.ports.blit(this.site, this.source)
+    if (this.column !== this.drawnColumn) {
+      this.ports.invalidate()
+      return
+    }
+    const before = this.shown
+    const source = this.source
+    if (source !== before) this.ports.blit(this.site, source)
+  }
+
+  /** Keeps the picture where it is while the sprite fits inside it; else
+   * moves it so the sprite has the spare columns ahead in its direction. */
+  private settle(): void {
+    const { columnPx, slackPx } = this.geo
+    const maxColumn = Math.max(0, this.bodyColumns - this.geo.columns)
+    const shift = this.pos - this.anchor * columnPx
+    if (this.anchor >= 0 && this.anchor <= maxColumn && shift >= 0 && shift <= slackPx) return
+    const under = Math.floor(this.pos / columnPx)
+    const column = this.anchor >= 0 && shift < 0 ? under - SLACK_COLUMNS + 1 : under
+    this.anchor = Math.min(maxColumn, Math.max(0, column))
   }
 
   // ── Geometry ──

@@ -1,8 +1,9 @@
 /**
  * Codecs the mod carries, because the hooks runtime has none of them:
  * base64, inflate (zlib and raw deflate), a zip reader, a PNG decoder and
- * a GIF decoder. Shared by `register.tsx` (the Crystal-style sources) and
- * `sky.tsx` (the SpriteCollab source). No game asset is stored here.
+ * encoder, and a GIF decoder. Shared by `register.tsx` (the Crystal-style
+ * sources) and `sky.tsx` (the SpriteCollab source). No game asset is stored
+ * here.
  */
 
 /** One frame of a decoded animation, RGBA, with its delay. */
@@ -394,6 +395,197 @@ export function concatBytes(parts: Uint8Array[]): Uint8Array {
     at += part.length
   }
   return joined
+}
+
+// ── PNG encoding ────────────────────────────────────────────────────────────
+// An 8-bit RGBA PNG for the pictures the mod paints: rows unfiltered, then
+// deflate with fixed Huffman codes and a greedy LZ77 match. A painted sprite
+// is mostly transparent and upscaled, so its pixels repeat along a row and
+// row on row; a 105×70 sprite picture comes to about 1 KB, from 29 KB raw.
+
+class BitWriter {
+  private bytes = new Uint8Array(1024)
+  private length = 0
+  private buffer = 0
+  private count = 0
+
+  /** Writes the low `width` bits of `value`, least significant first. */
+  bits(value: number, width: number): void {
+    this.buffer |= value << this.count
+    this.count += width
+    while (this.count >= 8) {
+      this.push(this.buffer & 0xff)
+      this.buffer >>>= 8
+      this.count -= 8
+    }
+  }
+
+  /** Writes a Huffman code, which deflate packs most significant bit first. */
+  code(code: number, width: number): void {
+    let reversed = 0
+    for (let i = 0; i < width; i++) reversed |= ((code >> i) & 1) << (width - 1 - i)
+    this.bits(reversed, width)
+  }
+
+  finish(): Uint8Array {
+    if (this.count > 0) this.push(this.buffer & 0xff)
+    this.buffer = 0
+    this.count = 0
+    return this.bytes.subarray(0, this.length)
+  }
+
+  private push(byte: number): void {
+    if (this.length === this.bytes.length) {
+      const grown = new Uint8Array(this.bytes.length * 2)
+      grown.set(this.bytes)
+      this.bytes = grown
+    }
+    this.bytes[this.length++] = byte
+  }
+}
+
+/** A literal or length symbol in deflate's fixed code (RFC 1951, 3.2.6). */
+function fixedLiteral(out: BitWriter, symbol: number): void {
+  if (symbol < 144) out.code(0x30 + symbol, 8)
+  else if (symbol < 256) out.code(0x190 + symbol - 144, 9)
+  else if (symbol < 280) out.code(symbol - 256, 7)
+  else out.code(0xc0 + symbol - 280, 8)
+}
+
+/** The index into LENGTH_BASE and DISTANCE_BASE for a match's length and distance. */
+function baseIndex(bases: readonly number[], value: number): number {
+  let index = bases.length - 1
+  while (bases[index]! > value) index--
+  return index
+}
+
+const MATCH_MIN = 3
+const MATCH_MAX = 258
+const WINDOW = 32768
+const CHAIN_LIMIT = 16
+
+/** Deflates `data` into one fixed-Huffman block, as a zlib stream. */
+export function deflateZlib(data: Uint8Array): Uint8Array {
+  const out = new BitWriter()
+  out.bits(0x78, 8)
+  out.bits(0x01, 8)
+  out.bits(1, 1) // the last block
+  out.bits(1, 2) // fixed Huffman codes
+
+  const hashSize = 1 << 15
+  const head = new Int32Array(hashSize).fill(-1)
+  const previous = new Int32Array(data.length)
+  const hashAt = (at: number) => ((data[at]! << 10) ^ (data[at + 1]! << 5) ^ data[at + 2]!) & (hashSize - 1)
+  const insert = (at: number) => {
+    if (at + MATCH_MIN > data.length) return
+    const hash = hashAt(at)
+    previous[at] = head[hash]!
+    head[hash] = at
+  }
+
+  for (let at = 0; at < data.length; ) {
+    let bestLength = 0
+    let bestDistance = 0
+    if (at + MATCH_MIN <= data.length) {
+      const limit = Math.min(MATCH_MAX, data.length - at)
+      let candidate = head[hashAt(at)]!
+      for (let chain = 0; candidate >= 0 && at - candidate <= WINDOW && chain < CHAIN_LIMIT; chain++) {
+        let length = 0
+        while (length < limit && data[candidate + length] === data[at + length]) length++
+        if (length > bestLength) {
+          bestLength = length
+          bestDistance = at - candidate
+          if (length === limit) break
+        }
+        candidate = previous[candidate]!
+      }
+    }
+    if (bestLength >= MATCH_MIN) {
+      const lengthIndex = baseIndex(LENGTH_BASE, bestLength)
+      fixedLiteral(out, 257 + lengthIndex)
+      out.bits(bestLength - LENGTH_BASE[lengthIndex]!, LENGTH_EXTRA[lengthIndex]!)
+      const distanceIndex = baseIndex(DISTANCE_BASE, bestDistance)
+      out.code(distanceIndex, 5)
+      out.bits(bestDistance - DISTANCE_BASE[distanceIndex]!, DISTANCE_EXTRA[distanceIndex]!)
+      for (let i = 0; i < bestLength; i++) insert(at + i)
+      at += bestLength
+    } else {
+      fixedLiteral(out, data[at]!)
+      insert(at)
+      at++
+    }
+  }
+  fixedLiteral(out, 256)
+  const body = out.finish()
+
+  const zlib = new Uint8Array(body.length + 4)
+  zlib.set(body)
+  new DataView(zlib.buffer).setUint32(body.length, adler32(data))
+  return zlib
+}
+
+function adler32(data: Uint8Array): number {
+  let a = 1
+  let b = 0
+  for (let at = 0; at < data.length; ) {
+    // 5552 bytes is the most that can be summed before the modulo overflows.
+    const end = Math.min(data.length, at + 5552)
+    for (; at < end; at++) {
+      a += data[at]!
+      b += a
+    }
+    a %= 65521
+    b %= 65521
+  }
+  return ((b << 16) | a) >>> 0
+}
+
+let crcTable: Uint32Array | undefined
+
+function crc32(bytes: Uint8Array): number {
+  if (!crcTable) {
+    crcTable = new Uint32Array(256)
+    for (let n = 0; n < 256; n++) {
+      let c = n
+      for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
+      crcTable[n] = c >>> 0
+    }
+  }
+  let crc = 0xffffffff
+  for (let i = 0; i < bytes.length; i++) crc = crcTable[(crc ^ bytes[i]!) & 0xff]! ^ (crc >>> 8)
+  return (crc ^ 0xffffffff) >>> 0
+}
+
+function pngChunk(type: string, body: Uint8Array): Uint8Array {
+  const chunk = new Uint8Array(body.length + 12)
+  const view = new DataView(chunk.buffer)
+  view.setUint32(0, body.length)
+  for (let i = 0; i < 4; i++) chunk[4 + i] = type.charCodeAt(i)
+  chunk.set(body, 8)
+  view.setUint32(8 + body.length, crc32(chunk.subarray(4, 8 + body.length)))
+  return chunk
+}
+
+/** An 8-bit RGBA PNG file of `width * height` pixels. */
+export function encodePng(rgba: Uint8Array, width: number, height: number): Uint8Array {
+  const rowBytes = width * 4
+  const raw = new Uint8Array((rowBytes + 1) * height)
+  for (let y = 0; y < height; y++) {
+    // Filter byte 0 (none) leads each row; it is already zero.
+    raw.set(rgba.subarray(y * rowBytes, (y + 1) * rowBytes), y * (rowBytes + 1) + 1)
+  }
+  const header = new Uint8Array(13)
+  const view = new DataView(header.buffer)
+  view.setUint32(0, width)
+  view.setUint32(4, height)
+  header[8] = 8 // bits per sample
+  header[9] = 6 // RGBA
+  return concatBytes([
+    Uint8Array.from(PNG_SIGNATURE),
+    pngChunk('IHDR', header),
+    pngChunk('IDAT', deflateZlib(raw)),
+    pngChunk('IEND', new Uint8Array(0)),
+  ])
 }
 
 // ── GIF decoding ────────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 {
   "name": "pokemon-buddy",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "One random animated Pokémon above your prompt, new each session: a Mystery Dungeon style buddy that walks the band and acts with character, or a Game Boy Color style sprite from Pokémon Crystal",
   "author": {
     "name": "Shavvimal",

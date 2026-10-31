@@ -1,7 +1,8 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
-import { fromBase64, readZip } from '../hooks/codecs'
-import { Actor, buildRig, geometry, parseAnimData, pickSheets, profileFor, seeded, type Rig } from '../hooks/sky'
+import type { ImageSource } from 'claude-code'
+import { decodePng, encodePng, fromBase64, readZip } from '../hooks/codecs'
+import { Actor, buildRig, geometry, parseAnimData, pickSheets, profileFor, seeded, SLACK_COLUMNS, type Rig } from '../hooks/sky'
 import { SKY_ZIP } from './sky-zip'
 
 // The Sky style: the SpriteCollab source and the actor that walks the band.
@@ -100,7 +101,8 @@ test('lists through the sprite server, fetches the zip with curl, and walks the 
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   const image = await ui.find({ type: 'Image', key: 'sprite' })
   expect(image?.props.rows).toBe(3)
-  expect(image?.props.columns).toBe(7)
+  // The sprite's 6 columns and the spare ones it shifts through.
+  expect(image?.props.columns).toBe(6 + SLACK_COLUMNS)
   expect(image?.props.alt).toBe(' ')
   expect(await ui.find({ type: 'Button', key: 'pet' })).toBeDefined()
 
@@ -161,7 +163,7 @@ test('builds a rig with the front and side rows, anchored on the ground point', 
   expect(rig.canvas.groundX).toBe(4)
   expect(Math.round(rig.clips.get('Idle')!.delaysMs[0]!)).toBe(200)
   const geo = geometry(rig)
-  expect(geo.columns).toBe(7)
+  expect(geo.columns).toBe(6 + SLACK_COLUMNS)
   expect(geo.sidePx).toBe(16)
 })
 
@@ -172,6 +174,7 @@ function crank(rig: Rig, random: () => number, bodyColumns = 40) {
   const timers: { at: number; fn: () => void; cancelled: boolean }[] = []
   let now = 0
   const blits: number[] = []
+  const sources: ImageSource[] = []
   let invalidations = 0
   const actor = new Actor(
     {
@@ -180,7 +183,10 @@ function crank(rig: Rig, random: () => number, bodyColumns = 40) {
         timers.push(timer)
         return { cancel: () => void (timer.cancelled = true) } as never
       },
-      blit: () => void blits.push(now),
+      blit: (_, source) => {
+        blits.push(now)
+        sources.push(source)
+      },
       invalidate: () => void invalidations++,
       random,
     },
@@ -201,7 +207,14 @@ function crank(rig: Rig, random: () => number, bodyColumns = 40) {
     }
     now = until
   }
-  return { actor, advance, blits, count: () => invalidations, pending: () => timers.filter(t => !t.cancelled).length }
+  return {
+    actor,
+    advance,
+    blits,
+    sources,
+    count: () => invalidations,
+    pending: () => timers.filter(t => !t.cancelled).length,
+  }
 }
 
 /** Random numbers from a list, then the last one for ever. */
@@ -225,7 +238,7 @@ test('walks to the right edge, turns through the front, and walks back', async (
     if (clip === 'Rotate') rows.add(row)
     maxColumn = Math.max(maxColumn, actor.column)
     expect(actor.column).toBeGreaterThanOrEqual(0)
-    expect(actor.column).toBeLessThanOrEqual(40 - 7)
+    expect(actor.column).toBeLessThanOrEqual(40 - actor.columns)
     if (clip === 'Walk' && state === 'walk') expect([2, 6]).toContain(row)
     if (facing === 'left' && clip === 'Idle') expect(row).toBe(6)
   }
@@ -289,7 +302,7 @@ test('while Claude works, the buddy walks to the prompt end and watches, facing 
     if (actor.current.state === 'watch') {
       watching++
       expect(actor.current.facing).toBe('down')
-      expect(actor.column).toBe(80 - 7)
+      expect(actor.column).toBe(80 - actor.columns)
     }
   }
   // Ten minutes of work on an 80-column band: the buddy spends a real share
@@ -336,4 +349,46 @@ test('the profile is the same for the same species', async () => {
   const rig = buildRig(files(), SHAPE)
   expect(profileFor(143, rig)).toEqual(profileFor(143, rig))
   expect(profileFor(143, rig).pace).not.toBe(profileFor(25, rig).pace)
+})
+
+// ── Drawing cost ──
+// Each swap and redraw competes with typing in the prompt below the band.
+
+test('a painted PNG decodes to the pixels it was made from', async () => {
+  const width = 21
+  const height = 13
+  const rgba = new Uint8Array(width * height * 4)
+  for (let p = 0; p < width * height; p++) {
+    // A patch of colour in a transparent field, with a repeating edge.
+    if (p % width > 4 && p % width < 15) rgba.set([p % 251, (p * 7) % 256, 90, 255], p * 4)
+  }
+  const back = decodePng(encodePng(rgba, width, height))
+  expect(back.kind).toBe('rgba')
+  if (back.kind !== 'rgba') return
+  expect(back.width).toBe(width)
+  expect(back.height).toBe(height)
+  expect([...back.rgba]).toEqual([...rgba])
+})
+
+test('a walk swaps only changed pictures, as PNGs, and moves the band every few columns', async () => {
+  const rig = buildRig(files(), SHAPE)
+  const { actor, advance, sources } = crank(rig, seeded(7), 80)
+  const maxColumn = 80 - actor.columns
+  let column = actor.column
+  let moves = 0
+  for (let i = 0; i < 6000; i++) {
+    advance(50)
+    if (actor.column === column) continue
+    moves++
+    // Away from the band's ends, the picture jumps by its spare columns.
+    const isEnd = actor.column === 0 || actor.column === maxColumn || column === 0 || column === maxColumn
+    if (!isEnd) expect(Math.abs(actor.column - column)).toBeGreaterThanOrEqual(SLACK_COLUMNS - 1)
+    column = actor.column
+  }
+  expect(moves).toBeGreaterThan(0)
+  expect(sources.length).toBeGreaterThan(0)
+  expect(sources.every(source => 'png' in source)).toBe(true)
+  // The same picture is never sent twice in a row; repeats are cached.
+  for (let i = 1; i < sources.length; i++) expect(sources[i]).not.toBe(sources[i - 1])
+  expect(new Set(sources).size).toBeLessThan(sources.length)
 })

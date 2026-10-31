@@ -304,7 +304,10 @@ export function geometry(rig: Rig) {
   const spriteColumns = rows * cellAspect
   const sidePx = rig.canvas.side * pixelScale
   const columnPx = sidePx / spriteColumns
-  const widthPx = sidePx + Math.ceil(columnPx * SLACK_COLUMNS)
+  // In whole sprite pixels, so the furthest shift is one too (an odd canvas
+  // side would otherwise leave half a sprite pixel at the end).
+  const slackPx = Math.ceil((columnPx * SLACK_COLUMNS) / pixelScale) * pixelScale
+  const widthPx = sidePx + slackPx
   return {
     spriteColumns,
     /** Columns the Image takes: the sprite plus the spare ones for the shift. */
@@ -314,7 +317,7 @@ export function geometry(rig: Rig) {
     columnPx,
     widthPx,
     /** The furthest the sprite shifts right inside the picture, in pixels. */
-    slackPx: widthPx - sidePx,
+    slackPx,
   }
 }
 
@@ -624,8 +627,10 @@ export class Actor {
 
   private nextDelay(): number {
     let dt = this.cueLeft
+    // A walk or nap reads its `untilT` only when a clip ends, in finish(), so
+    // the tick waits for the cue; capping it at `untilT` only made no-op
+    // ticks at MIN_TICK_MS once that time had passed.
     if (this.state.kind === 'walk') dt = Math.min(dt, MOVE_TICK_MS)
-    if ('untilT' in this.state) dt = Math.min(dt, this.state.untilT - this.t)
     return Math.min(MAX_TICK_MS, Math.max(MIN_TICK_MS, Math.ceil(dt)))
   }
 

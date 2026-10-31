@@ -13,7 +13,7 @@ Original code and documentation, under the MIT licence in
 
 Two exceptions each show one sprite, to illustrate what the mod does:
 
-- `docs/header.gif`, the README header: a mockup of a terminal session in
+- `docs/header-sky.gif`, the README header: a mockup of a terminal session in
   which SpriteCollab's Pikachu sprite (the Explorers of Sky original,
   credited to CHUNSOFT in `sprite/0025/credits.txt`) walks the band.
 - `.claude-plugin/icon.png`, the plugin icon: one frame of Pokémon Crystal's

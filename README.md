@@ -5,7 +5,7 @@
 [![licence: MIT](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 
 <p align="center">
-  <img src="docs/header.gif" alt="A Claude Code session in a terminal. In the row above the prompt an animated Pikachu walks from left to right, turns around, walks back, looks up, sits down, falls asleep, wakes, strikes a pose and walks off again" width="960">
+  <img src="docs/header-sky.gif" alt="A Claude Code session in a terminal. In the row above the prompt an animated Pikachu walks from left to right, turns around, walks back, looks up, sits down, falls asleep, wakes, strikes a pose and walks off again" width="960">
 </p>
 
 A little desktop pet for your terminal. Pokémon Buddy gives every
@@ -315,7 +315,7 @@ Code fetches them from the public repositories above. Using a source is the
 user's own choice, and each one can be turned off. The MIT licence of this
 repository covers only its own code.
 
-The header animation, `docs/header.gif`, shows SpriteCollab's Pikachu
+The header animation, `docs/header-sky.gif`, shows SpriteCollab's Pikachu
 sprite (its Explorers of Sky original, credited to CHUNSOFT) walking a
 mocked-up band, and the plugin icon, `.claude-plugin/icon.png`, shows Pokémon
 Crystal's Charizard sprite (from PokeAPI/sprites), both drawn to illustrate

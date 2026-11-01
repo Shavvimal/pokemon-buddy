@@ -183,6 +183,7 @@ function crank(rig: Rig, random: () => number, bodyColumns = 40) {
   let onShow: ImageSource | undefined
   let invalidations = 0
   let isRenderDue = true
+  let firings = 0
   const actor = new Actor(
     {
       after: (ms, fn) => {
@@ -221,6 +222,7 @@ function crank(rig: Rig, random: () => number, bodyColumns = 40) {
       if (!due) break
       timers.splice(timers.indexOf(due), 1)
       now = due.at
+      firings++
       due.fn()
       render()
     }
@@ -235,6 +237,7 @@ function crank(rig: Rig, random: () => number, bodyColumns = 40) {
     swaps,
     count: () => invalidations,
     pending: () => timers.filter(t => !t.cancelled).length,
+    fired: () => firings,
   }
 }
 
@@ -449,5 +452,34 @@ test('the encoder writes the standard checksums and round-trips long, repeating 
   long.copyWithin(40_000, 1_000, 6_000)
   for (const data of [new Uint8Array(0), Uint8Array.of(1), new Uint8Array(258 + 3).fill(9), long]) {
     expect([...inflateZlib(deflateZlib(data))]).toEqual([...data])
+  }
+})
+
+test('outside a walk, the actor ticks only when the frame on show changes', async () => {
+  const rig = buildRig(files(), SHAPE)
+  const { actor, advance, fired } = crank(rig, seeded(11))
+  let idle = 0
+  let last = JSON.stringify(actor.current)
+  let firedBefore = fired()
+  for (let i = 0; i < 40_000; i++) {
+    advance(50)
+    const now = JSON.stringify(actor.current)
+    // A tick that fired, outside a walk, and left the same frame on show.
+    if (fired() > firedBefore && now === last && actor.current.state !== 'walk') idle++
+    firedBefore = fired()
+    last = now
+  }
+  // Some repeats are real (a one-frame clip that loops); 0.4.2 also made
+  // no-op ticks after a nap's or walk's time was up (32 in this run).
+  expect(idle).toBeLessThan(8)
+})
+
+test('the furthest shift is a whole sprite pixel, for odd canvas sides too', async () => {
+  const rig = buildRig(files(), SHAPE)
+  for (let side = 5; side < 100; side++) {
+    const geo = geometry({ ...rig, canvas: { ...rig.canvas, side } })
+    expect(geo.slackPx % SHAPE.pixelScale).toBe(0)
+    expect(geo.slackPx).toBeGreaterThanOrEqual(geo.columnPx * SLACK_COLUMNS)
+    expect(geo.widthPx).toBe(geo.sidePx + geo.slackPx)
   }
 })

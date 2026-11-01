@@ -2,6 +2,15 @@
 
 This project follows [Semantic Versioning](https://semver.org).
 
+## 0.4.3 - 2026-11-01
+
+- Sky style: once a walk's or a nap's time was up, the buddy ticked about 30
+  times a second until its clip ended, changing nothing. It now waits for the
+  clip to end.
+- Sky style: on a sprite whose canvas side is odd, the right-most shift was
+  half a sprite pixel, which painted an extra picture before each move to the
+  right. The spare width is now whole sprite pixels.
+
 ## 0.4.2 - 2026-10-31
 
 - Sky style: a walking buddy costs far less to draw, so typing beside it

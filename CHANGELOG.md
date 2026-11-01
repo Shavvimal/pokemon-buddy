@@ -2,7 +2,7 @@
 
 This project follows [Semantic Versioning](https://semver.org).
 
-## 0.4.3 - 2026-10-31
+## 0.4.3 - 2026-11-01
 
 - Sky style: once a walk's or a nap's time was up, the buddy ticked about 30
   times a second until its clip ended, changing nothing. It now waits for the
